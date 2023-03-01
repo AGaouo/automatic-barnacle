@@ -12,16 +12,33 @@ import os
 import json
 
 AGTools = 'AGTools_0.53'
+
+
 maya_script_dir = '{}/scripts'.format(os.environ['MAYA_APP_DIR'].split(';')[0])
 agtools_dir = '{}/agtools'.format(maya_script_dir)
-settings_dir = '{}/settings'.format(agtools_dir)
 image_dir = '{}/images'.format(agtools_dir)
+
+
+settings_dir = '{}/settings'.format(agtools_dir)
+
+
+image_dir = os.path.abspath(r'T:\gz\AGTools_RP_Editions\images')
+
+AGT_UI_SETTINGS = QtCore.QSettings('MyCompany', 'MyApp')
+BANNER_IMG = os.path.join(image_dir, 'header_img_{}.png')
+
+
+image_path_r = '{}/header_img_rp.png'.format(image_dir)
+image_path = '{}/header_img_agao.png'.format(image_dir)
+
 agt_suffix = '{}/agt_suffix.json'.format(settings_dir)
 # def maya_main_window():
 #      main_window_ptr = omui.MQtUtil.mainWindow()
 #      return wrapInstance(int(main_window_ptr), QtWidgets.QWidget)
 
 #class
+
+# AGT_UI_SETTINGS = QtCore.QSettings('MyCompany', 'MyApp')
 
 class CustomColorButton(QtWidgets.QWidget):
     
@@ -272,6 +289,8 @@ class AGTools(QtWidgets.QWidget):
         self.setWindowTitle('AGTools RP Editions')
         self.setMinimumSize(400, 520)
         
+        
+        
         #self.setFixedHeight(200)
         self.setWindowFlags(self.windowFlags() ^ QtCore.Qt.WindowContextHelpButtonHint)
         
@@ -283,6 +302,9 @@ class AGTools(QtWidgets.QWidget):
         self.renderer_node_switch()
         #self.rename_separator_cb_changed()
         self.rename_refresh_items()
+        
+        
+        
 
         #QtWidgets.QApplication.installEventFilter(self, True)
         
@@ -291,12 +313,18 @@ class AGTools(QtWidgets.QWidget):
         self.menubar = QtWidgets.QMenuBar()
         
         self.menu_banner = QtWidgets.QMenu('Banner')
-        self.banner_display = self.menu_banner.addAction('Display Toggle')
+        self.hide_banner = self.menu_banner.addAction('Hide Banner')
+        self.hide_banner.setCheckable(True)
+        
+        self.hide_banner.setChecked(AGT_UI_SETTINGS.value('hide_banner', False, type=bool))
+        # print(AGT_UI_SETTINGS.value('banner_img', 'agao'))
+        
+        self.banner_rp = self.menu_banner.addAction('RP')
         self.banner_agao = self.menu_banner.addAction('AGao')
         self.banner_doge = self.menu_banner.addAction('Doge')
         self.banner_kirby = self.menu_banner.addAction('Kirby')
         self.banner_lycoris = self.menu_banner.addAction('Lycoris')
-        
+        # self.title_label.set_image(image_path_r)
         
         self.menu_open = QtWidgets.QMenu('Settings')
         self.open_autosuffix = self.menu_open.addAction('Auto Suffix')
@@ -311,6 +339,9 @@ class AGTools(QtWidgets.QWidget):
         self.menubar.addMenu(self.menu_help)
         #self.model_line_01edit
         self.create_title_label()
+        
+        self.title_label.setHidden(AGT_UI_SETTINGS.value('hide_banner', True, type=bool))
+        
         self.header_img = QtGui.QPixmap('{}\\header_img_agao.png'.format(image_dir))
         self.header_label = QtWidgets.QLabel()
         self.header_label.setPixmap(self.header_img)
@@ -732,6 +763,7 @@ class AGTools(QtWidgets.QWidget):
         
         self.rename_item_object_label = QtWidgets.QLabel('Objects :')
         self.rename_item_count_label = QtWidgets.QLabel()
+        self.rename_clear_btn = QtWidgets.QPushButton('Clear')
         self.rename_item_preview_ckb = QtWidgets.QCheckBox('Preview')
         self.rename_item_preview_ckb.setChecked(True)
         self.change_checkbox_color(self.rename_item_preview_ckb, '3b8dfd')
@@ -807,10 +839,10 @@ class AGTools(QtWidgets.QWidget):
         self.export_abc_btn = QtWidgets.QPushButton('Alembic')
         
     def create_title_label(self):
-        image_path = '{}/header_img_rp.png'.format(image_dir)
+        image_path = BANNER_IMG.format(AGT_UI_SETTINGS.value('banner_img', 'agao'))
         self.title_label = CustomImageWidget(400, 80, image_path)
         self.title_label.set_backgorund_color(QtGui.QColor('#fdca3b'))
-        
+
     def create_layout(self):
         main_layout = QtWidgets.QVBoxLayout(self)
         main_layout.addWidget(self.menubar)
@@ -1083,11 +1115,13 @@ class AGTools(QtWidgets.QWidget):
         #rename_options_layout.addStretch()
        # rename_options_layout.addWidget(self.rename_btn)
         
-        
         rename_btn_layout = QtWidgets.QHBoxLayout()
         rename_item_preview_cbk_layout = QtWidgets.QHBoxLayout()
         rename_item_preview_cbk_layout.addStretch()
+        
         rename_item_preview_cbk_layout.addWidget(self.rename_item_preview_ckb)
+        rename_item_preview_cbk_layout.addWidget(self.rename_clear_btn)
+        
         
         rename_item_object_count_layout = QtWidgets.QHBoxLayout() 
         rename_item_object_count_layout.setAlignment(QtCore.Qt.AlignLeft)
@@ -1237,7 +1271,13 @@ class AGTools(QtWidgets.QWidget):
         
     def create_connections(self):
         
-        self.banner_display.triggered.connect(lambda: self.banner_display_toggle())
+        self.banner_rp.triggered.connect(lambda: self.update_banner('rp'))
+        self.banner_agao.triggered.connect(lambda: self.update_banner('agao'))
+        self.banner_kirby.triggered.connect(lambda: self.update_banner('kirby'))
+        self.banner_doge.triggered.connect(lambda: self.update_banner('doge'))
+        self.banner_lycoris.triggered.connect(lambda: self.update_banner('lycoris'))
+        
+        self.hide_banner.triggered.connect(lambda: self.banner_display_toggle())
         #self.inst_btn.
         #print(self.changedValue(self.hardedges_slider_min, self.hardedges_label_min))
         self.my_tab.currentChanged.connect(lambda: self.rename_refresh_items())
@@ -1536,8 +1576,17 @@ class AGTools(QtWidgets.QWidget):
     def banner_display_toggle(self):
         if self.title_label.isHidden():
             self.title_label.setHidden(False)
+            AGT_UI_SETTINGS.setValue('hide_banner', False)
         else:
             self.title_label.setHidden(True)
+            AGT_UI_SETTINGS.setValue('hide_banner', True)
+            
+    def update_banner(self, banner_str):
+        AGT_UI_SETTINGS.setValue('banner_img', banner_str)
+        self.title_label.set_image(BANNER_IMG.format(banner_str))
+        
+        for _ in range(2):
+            self.banner_display_toggle()
             
     def aces_checked(self):
         if self.create_file_aces_ckb.isChecked():
@@ -1780,30 +1829,45 @@ class AGTools(QtWidgets.QWidget):
         
         return selection
             
-#AGTools.show_dialog()
-# if __name__ == '__main__':
-    
-#     try:
-#         agtools_ui.setParent(None)
-#         agtools_ui.deleteLater()
-#     except:
-#         pass
-        
-#     agtools_ui = AGTools()
-    
+
+
+
 if __name__ == "__main__":
+    ui_exist = False
+    try:
+        if agt_ui and agt_ui.parent():
+            ui_exist = True
+            workspace_control_name = agt_ui.parent().objectName()
+            if mc.workspaceControl(workspace_control_name, q=True, exists=True):
+                mc.deleteUI(workspace_control_name)
+                mc.workspaceControl(workspace_control_name, e=True, close=True)
+            del agt_ui
+        else:
+            ui_exist = False
+    except:
+        pass
+    if not ui_exist:
+        agt_ui = AGTools()
+
+def display():
+    global agt_ui
+    ui_exist = False
     
     try:
         if agt_ui and agt_ui.parent():
-            mc.scriptJob(ka=True)
+            ui_exist = True
             workspace_control_name = agt_ui.parent().objectName()
-            
-            if mc.window(workspace_control_name, exists=True):
+            if mc.workspaceControl(workspace_control_name, q=True, exists=True):
                 mc.deleteUI(workspace_control_name)
+                mc.workspaceControl(workspace_control_name, e=True, close=True)
+            del agt_ui
+        else:
+            ui_exist = False
     except:
         pass
-    
-    agt_ui = AGTools()
+    if not ui_exist:
+        agt_ui = AGTools()
+
 #     print(agt_ui)
     # agt_ui.show()
     #dockable=True
