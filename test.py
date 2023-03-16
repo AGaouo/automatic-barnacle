@@ -5,6 +5,7 @@ from shiboken2 import getCppPointer
 from shiboken2 import wrapInstance
 from functools import partial
 
+import re
 import sys
 import maya.OpenMayaUI as omui
 import maya.cmds as mc
@@ -13,6 +14,9 @@ import json
 
 AGTools = 'AGTools_0.53'
 
+available_color_spaces = re.compile(r'sRGB|ACEScg|raw', re.IGNORECASE)
+COLOR_SPACES = cmds.colorManagementPrefs(q=True, inputSpaceNames=True)
+FILTERED_COLOR_SPACES = [space for space in COLOR_SPACES if available_color_spaces.search(space)]
 
 maya_script_dir = '{}/scripts'.format(os.environ['MAYA_APP_DIR'].split(';')[0])
 agtools_dir = '{}/agtools'.format(maya_script_dir)
@@ -27,18 +31,8 @@ image_dir = os.path.abspath(r'T:\gz\AGTools_RP_Editions\images')
 AGT_UI_SETTINGS = QtCore.QSettings('MyCompany', 'MyApp')
 BANNER_IMG = os.path.join(image_dir, 'header_img_{}.png')
 
-
-image_path_r = '{}/header_img_rp.png'.format(image_dir)
-image_path = '{}/header_img_agao.png'.format(image_dir)
-
 agt_suffix = '{}/agt_suffix.json'.format(settings_dir)
-# def maya_main_window():
-#      main_window_ptr = omui.MQtUtil.mainWindow()
-#      return wrapInstance(int(main_window_ptr), QtWidgets.QWidget)
 
-#class
-
-# AGT_UI_SETTINGS = QtCore.QSettings('MyCompany', 'MyApp')
 
 class CustomColorButton(QtWidgets.QWidget):
     
@@ -58,7 +52,6 @@ class CustomColorButton(QtWidgets.QWidget):
         # 1 create thet colorSliderGrp
         window = mc.window()
         self._name = mc.colorSliderGrp()
-        #print('original name: {0}'.format(self._name))
         
         # 2 find the colorSLiderGrp widget
         color_slider_obj = omui.MQtUtil.findControl(self._name)
@@ -75,14 +68,9 @@ class CustomColorButton(QtWidgets.QWidget):
             
             self._name = omui.MQtUtil.fullName(int(color_slider_obj))
             
-            #print('new name name: {0}'.format(self._name))
             
             # 5 identify/store the colorSliderGrp's child widgets (and hide if necessary)
-            #children = self._color_slider_widget.children()
-            #for child in children:
-            #    print(child)
-            #    print(child.objectName())
-            #print('---')
+
             
             self._slider_widget = self._color_slider_widget.findChild(QtWidgets.QWidget, 'slider')
             if self._slider_widget:
@@ -219,7 +207,15 @@ class MyLineEdit(QtWidgets.QLineEdit):
         if e.key() == QtCore.Qt.Key_Enter or e.key() == QtCore.Qt.Key_Return:
             self.enter_pressed.emit()
 
-
+class CustomRoundCornerButton(QtWidgets.QPushButton):
+    def __init__(self, text):
+        super(CustomRoundCornerButton, self).__init__(text)
+        self.setStyleSheet('''
+            QPushButton {background-color: #5d5d5d; border-radius: 2px; padding: 5px;}
+            QPushButton:hover {background-color: #707070;color: white;}
+            QPushButton:pressed {background-color: #1d1d1d;color: white;}
+            '''
+            )
 
 class AGTools(QtWidgets.QWidget):
         
@@ -245,54 +241,18 @@ class AGTools(QtWidgets.QWidget):
     def get_workspace_control_name(cls):
         return '{0}WorkspaceControl'.format(cls.UI_NAME) 
 
-    @classmethod
-    def show_dialog(cls):
-        print('ui stored:')
-        print(cls.AGtoolsWindows)
-        print('')
-        
-        if not cls.AGtoolsWindows:
-            
-            cls.AGtoolsWindows = AGTools()
-            print('new ui stored:')
-            print(cls.AGtoolsWindows)
-            print(type(cls.AGtoolsWindows))
-            print('')
-            
-        if cls.AGtoolsWindows.isHidden():
-            print('hidden')
-            
-            print(cls.AGtoolsWindows.isActiveWindow())
-            
-            cls.AGtoolsWindows.activateWindow()
-            cls.AGtoolsWindows.raise_()
-            cls.AGtoolsWindows.show_workspace_control()
-            
-            print('agtools opened')
-        else:
-            print('showed')
-            print('agtools closed')
-            cls.AGtoolsWindows.hide()
-            #cls.AGtoolsWindows = AGTools()
-            #cls.AGtoolsWindows.show_workspace_control()
-            #cls.AGtoolsWindows.raise_()
-            #cls.AGtoolsWindows.activateWindow()
     
     def __init__(self):
         super(AGTools, self).__init__()
         
         self.setObjectName(self.__class__.UI_NAME)
-        
-        self.job_update_selection = mc.scriptJob(event=['SelectionChanged', 'agt_ui.rename_refresh_items()'], parent=self.__class__.UI_NAME)
-        print(self.job_update_selection)
-        #self.setStyleSheet("background-color: grey;")
+              
         self.setWindowTitle('AGTools RP Editions')
         self.setMinimumSize(400, 520)
-        
-        
-        
-        #self.setFixedHeight(200)
+
         self.setWindowFlags(self.windowFlags() ^ QtCore.Qt.WindowContextHelpButtonHint)
+        self.setAttribute(QtCore.Qt.WA_DeleteOnClose, True)
+        self.installEventFilter(self)
         
         self.create_widgets()
         self.create_layout()
@@ -300,13 +260,11 @@ class AGTools(QtWidgets.QWidget):
         self.create_workspace_control()
         
         self.renderer_node_switch()
-        #self.rename_separator_cb_changed()
+        self.job_update_selection = mc.scriptJob(event=['SelectionChanged', 'agt_ui.rename_refresh_items()'], parent=self.__class__.UI_NAME)
         self.rename_refresh_items()
-        
-        
-        
-
-        #QtWidgets.QApplication.installEventFilter(self, True)
+        self.set_user_data()
+        print('job_num')
+        print(self.job_update_selection)
         
     def create_widgets(self):
         
@@ -318,13 +276,9 @@ class AGTools(QtWidgets.QWidget):
         
         self.hide_banner.setChecked(AGT_UI_SETTINGS.value('hide_banner', False, type=bool))
         # print(AGT_UI_SETTINGS.value('banner_img', 'agao'))
-        
-        self.banner_rp = self.menu_banner.addAction('RP')
-        self.banner_agao = self.menu_banner.addAction('AGao')
-        self.banner_doge = self.menu_banner.addAction('Doge')
-        self.banner_kirby = self.menu_banner.addAction('Kirby')
-        self.banner_lycoris = self.menu_banner.addAction('Lycoris')
-        # self.title_label.set_image(image_path_r)
+        banner_items = ['RP', 'AGao', 'Doge', 'Kirby', 'Lycoris']
+        self.banner_items = [self.menu_banner.addAction(banner) for banner in banner_items]
+
         
         self.menu_open = QtWidgets.QMenu('Settings')
         self.open_autosuffix = self.menu_open.addAction('Auto Suffix')
@@ -346,14 +300,6 @@ class AGTools(QtWidgets.QWidget):
         self.header_label = QtWidgets.QLabel()
         self.header_label.setPixmap(self.header_img)
         self.header_label.setScaledContents(True)
-        
-        #self.header_label.setFixedHeight(80)
-        #self.header_label.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Ignored)
-        #self.header_label.resize(360, 5)
-        #self.header_label.addStrech()
-        
-        #self.testpop = CustomMarkingMenu()
-        #self.inst_btn = CustomPushButton()
         
         self.model_line_01 = QtWidgets.QLabel()
         self.model_line_01.setFrameStyle(QtWidgets.QFrame.HLine | QtWidgets.QFrame.Plain)
@@ -386,76 +332,46 @@ class AGTools(QtWidgets.QWidget):
         self.axis_mirror_rb = QtWidgets.QRadioButton()
         self.axis_flip_rb = QtWidgets.QRadioButton()
         
-        self.axis_x_btn = QtWidgets.QPushButton('x')
-        self.axis_y_btn = QtWidgets.QPushButton('y')
-        self.axis_z_btn = QtWidgets.QPushButton('z')
-        self.axis_none_btn = QtWidgets.QPushButton('none')
-        self.axis_auto_btn = QtWidgets.QPushButton('auto')
-        self.axis_radial_btn = QtWidgets.QPushButton('radial')
+        self.axis_x_btn = CustomRoundCornerButton('x')
+        self.axis_y_btn = CustomRoundCornerButton('y')
+        self.axis_z_btn = CustomRoundCornerButton('z')
+        self.axis_none_btn = CustomRoundCornerButton('none')
+        self.axis_auto_btn = CustomRoundCornerButton('auto')
+        self.axis_radial_btn = CustomRoundCornerButton('radial')
         
+        self.inst_btn = CustomRoundCornerButton('Instance')
+        self.duplicate_btn = CustomRoundCornerButton('Duplicate')
+        self.mirror_btn = CustomRoundCornerButton('Mirror') 
+        self.flip_btn = CustomRoundCornerButton('Flip')
         
+        inst_dupl_menu_dict = {
+            'Y' : 'N',
+            'Auto' : 'S',
+            'Radial' : 'SW',
+            'Z' : 'E',
+            'X' : 'W',
+        }
+        flip_mirror_menu_dict = inst_dupl_menu_dict.copy()
+        del flip_mirror_menu_dict['Radial']
         
-        self.inst_btn = QtWidgets.QPushButton()
-        self.inst_btn.setObjectName('inst_btn')
-        mc.popupMenu(mm=True, p=self.inst_btn.objectName())
-        inst_icon = 'polyShareInstancesSelect'
-        mc.menuItem(l='Y', rp="N", c="instance()", i=inst_icon)
-        mc.menuItem(l='Auto', rp="S", c="instance()", i=inst_icon)
-        mc.menuItem(l='Radial', rp="SW", c="instance()", i=inst_icon)
-        mc.menuItem(l='Z', rp="E", c="instance()", i=inst_icon)
-        mc.menuItem(l='X', rp="W", c="instance()", i=inst_icon)
-        self.inst_btn.setIcon(QtGui.QIcon(image_dir+'/instance_normal'+'.png'))
-        self.inst_btn.setIconSize(model_btn_size_01)
-        self.inst_btn.setFixedSize(model_btn_size_01)
-        self.inst_btn.setStyleSheet('border: none;')
-        
-        
-        self.duplicate_btn = QtWidgets.QPushButton()  # Duplicate
-        self.duplicate_btn.setObjectName('duplicate_btn')
-        mc.popupMenu(mm=True, p=self.duplicate_btn.objectName())
-        dup_icon = 'polyShareInstancesLarge'
-        mc.menuItem(l='Y', rp="N", c="print('Y')", i=dup_icon)
-        mc.menuItem(l='Auto', rp="S", c="print('Auto')", i=dup_icon)
-        mc.menuItem(l='Radial', rp="SW", c="print('Radial')", i=dup_icon)
-        mc.menuItem(l='Z', rp="E", c="print('E')", i=dup_icon)
-        mc.menuItem(l='X', rp="W", c="print('W')", i=dup_icon)
-        self.duplicate_btn.setIcon(QtGui.QIcon(image_dir+'/duplicate_normal'+'.png'))
-        self.duplicate_btn.setIconSize(model_btn_size_01)
-        self.duplicate_btn.setFixedSize(model_btn_size_01)
-        self.duplicate_btn.setStyleSheet('border: none;')
-        
-        
-        self.mirror_btn = QtWidgets.QPushButton()  # Mirror
-        self.mirror_btn.setObjectName('mirror_btn')
-        mc.popupMenu(mm=True, p=self.mirror_btn.objectName())
-        mirror_icon = 'polyMirrorGeometry'
-        mc.menuItem(l='Y', rp="N", c="print('Y')", i=mirror_icon)
-        mc.menuItem(l='Auto', rp="S", c="print('Auto')", i=mirror_icon)
-        mc.menuItem(l='Z', rp="E", c="print('E')", i=mirror_icon)
-        mc.menuItem(l='X', rp="W", c="print('W')", i=mirror_icon)
-        self.mirror_btn.setIcon(QtGui.QIcon(image_dir+'/mirror_normal'+'.png'))
-        self.mirror_btn.setIconSize(model_btn_size_01)
-        self.mirror_btn.setFixedSize(model_btn_size_01)
-        self.mirror_btn.setStyleSheet('border: none;')
-        
-        self.flip_btn = QtWidgets.QPushButton()  # Flip
-        self.flip_btn.setObjectName('flip_btn')
-        mc.popupMenu(mm=True, p=self.flip_btn.objectName())
-        flip_icon = 'polyFlip'
-        mc.menuItem(l='Y', rp="N", c="print('Y')", i=flip_icon)
-        mc.menuItem(l='Auto', rp="S", c="print('Auto')", i=flip_icon)
-        mc.menuItem(l='Z', rp="E", c="print('E')", i=flip_icon)
-        mc.menuItem(l='X', rp="W", c="print('W')", i=flip_icon)
-        self.flip_btn.setIcon(QtGui.QIcon(image_dir+'/flip_normal'+'.png'))
-        self.flip_btn.setIconSize(model_btn_size_01)
-        self.flip_btn.setFixedSize(model_btn_size_01)
-        self.flip_btn.setStyleSheet('border: none;')
-        
-        self.model_btn_grp_01 = [self.inst_btn, self.duplicate_btn, self.mirror_btn, self.flip_btn]
+        quick_model_btn_dict = {
+            'inst' : {'btn':self.inst_btn, 'icon':'polyShareInstancesSelect', 'func':'print("{}")', 'menu':inst_dupl_menu_dict}, 
+            'dupl' : {'btn':self.duplicate_btn, 'icon':'polyShareInstancesLarge', 'func':'print("{}")', 'menu':inst_dupl_menu_dict}, 
+            'mirr' : {'btn':self.mirror_btn, 'icon':'polyMirrorGeometry', 'func':'print("{}")', 'menu':flip_mirror_menu_dict}, 
+            'flip' : {'btn':self.flip_btn, 'icon':'polyFlip', 'func':'print("{}")', 'menu':flip_mirror_menu_dict}
+            }            
+            
+        for btn in quick_model_btn_dict:
+            btn_info = quick_model_btn_dict[btn]
+            btn_info['btn'].setFixedSize(model_btn_size_01)
+            btn_info['btn'].setObjectName('{}_btn'.format(btn))
+            mc.popupMenu(mm=True, p=btn_info['btn'].objectName())
+            for axis in btn_info['menu']:
+                mc.menuItem(l=axis, rp=btn_info['menu'][axis], c=btn_info['func'].format(btn+axis), i=btn_info['icon'])
+            
         #self.inst_btn.setStyleSheet()
         
         self.my_tab = QtWidgets.QTabWidget(self)
-        #self.my_tab.setStyleSheet("background-color: grey;")
         
         # M O D E L   W I D G E T S
         self.object_rb = QtWidgets.QRadioButton('Object')
@@ -466,13 +382,13 @@ class AGTools(QtWidgets.QWidget):
         self.inst_colorize_ckb.setChecked(True)
         self.change_checkbox_color(self.inst_colorize_ckb, 'fdca3b')
         
-        self.inst_bake_btn = QtWidgets.QPushButton('Instance to Ojbect')
+        self.inst_bake_btn = CustomRoundCornerButton('Instance to Ojbect')
         self.inst_bake_btn.setIcon(QtGui.QIcon(':instanceToObject.png'))
         #self.inst_bake_btn.setFixedWidth(100)
         self.inst_merge_ckb = QtWidgets.QCheckBox('Merge Verts')
         #self.inst_merge_ckb.setIcon(QtGui.QIcon(':polyMergeToCenter.png'))
         
-        self.badmesh_btn = QtWidgets.QPushButton('Select Bad Mesh')
+        self.badmesh_btn = CustomRoundCornerButton('Select Bad Mesh')
         self.badmesh_btn.setIcon(QtGui.QIcon(':polyTriangulate.png'))
         
         self.hardedges_label_main = QtWidgets.QLabel('Hard Edges')
@@ -495,7 +411,7 @@ class AGTools(QtWidgets.QWidget):
         self.hardedges_slider_max.setDisabled(True)
         self.hardedges_label_max = QtWidgets.QLabel('360')
         
-        self.hardedges_select_btn = QtWidgets.QPushButton('Select Edges')
+        self.hardedges_select_btn = CustomRoundCornerButton('Select Edges')
         self.hardedges_select_btn.setIcon(QtGui.QIcon(':componentTag_edge.png'))
         self.hardedges_select_btn.setObjectName('hardedges_select_btn')
         mc.popupMenu(mm=True, p=self.hardedges_select_btn.objectName())
@@ -507,12 +423,27 @@ class AGTools(QtWidgets.QWidget):
         #mc.menuItem(l='X', rp="W", c="print('W')")
         
         self.hardedges_select_btn.setMinimumHeight(36)
+        self.hardedges_select_btn.setStyleSheet('''
+            QPushButton {background-color: #5d5d5d; border-radius: 5px; padding: 5px;}
+            QPushButton:hover {background-color: #707070;color: white;}
+            QPushButton:pressed {background-color: #1d1d1d;color: white;}
+            '''
+            )
+        
         #self.hardedges_select_btn.setStyleSheet('{ border : none}')
         
-        self.hardedges_btn = QtWidgets.QPushButton('Hard Edges')
-        self.floor_btn = QtWidgets.QPushButton('Move to Center')
+        self.hardedges_btn = CustomRoundCornerButton('Hard Edges')
+        self.hardedges_btn.setStyleSheet('''
+            QPushButton {background-color: #5d5d5d; border-radius: 5px; padding: 5px;}
+            QPushButton:hover {background-color: #707070;color: white;}
+            QPushButton:pressed {background-color: #1d1d1d;color: white;}
+            '''
+            )
+        
+        self.floor_btn = CustomRoundCornerButton('Move to Center')
+
         self.floor_btn.setIcon(QtGui.QIcon(':alignTool.png'))
-        self.checker_btn = QtWidgets.QPushButton('Checker Select')
+        self.checker_btn = CustomRoundCornerButton('Checker Select')
         self.checker_btn.setIcon(QtGui.QIcon(':polyDuplicateedge_loop.png'))
         #self.checker_btn.setIcon(QtGui.QIcon(':polyDelEdgeVertex.png'))
         
@@ -528,23 +459,6 @@ class AGTools(QtWidgets.QWidget):
         self.badmesh_btn.setMenu(self.badmesh_menu)
         
         
-        
-        '''
-        self.badmesh_list = ['N-Gons', 'Triangles', 'Non-Quad', '', 'Non-Manifold', 'Concave']
-        self.badmesh_actions = []
-        
-        for badmesh in self.badmesh_list:
-            self.label = badmesh
-            if badmesh:
-                action = self.badmesh_menu.addAction(self.label)
-            else:
-                action = self.badmesh_menu.addSeparator()
-            self.badmesh_actions.append(action)
-        '''
-        
-        #self.bake
-        #self.object_rb.setVisible(True)
-        
         # S H A D E R   W I D G E T S
         self.shader_line_01 = QtWidgets.QLabel()
         self.shader_line_01.setFrameStyle(QtWidgets.QFrame.HLine | QtWidgets.QFrame.Plain)
@@ -558,7 +472,7 @@ class AGTools(QtWidgets.QWidget):
         
         self.create_shader_folder_le = QtWidgets.QLineEdit()
         self.create_shader_folder_le.setMinimumHeight(24)
-        self.select_file_path_btn = QtWidgets.QPushButton()
+        self.select_file_path_btn = CustomRoundCornerButton('')
         self.select_file_path_btn.setIcon(QtGui.QIcon(':fileOpen.png'))
         self.select_file_path_btn.setToolTip('Select Folder')
         
@@ -581,31 +495,27 @@ class AGTools(QtWidgets.QWidget):
         
         self.create_shader_colorspace_cb = QtWidgets.QComboBox()
         self.create_shader_colorspace_cb.setMinimumHeight(27)
-        #self.create_shader_colorspace_cb.setFixedWidth(60)
-        self.create_shader_colorspace_cb.addItems(['sRGB / Raw', 'ACES : ACEScg', 'ACES : sRGB - Texture / Utility - Raw', 'ACES : Output - sRGB / Utility - Raw'])
+        self.create_shader_colorspace_cb.addItems(FILTERED_COLOR_SPACES)
         
-        self.create_shader_btn = QtWidgets.QPushButton('Create Shader')
+        self.create_shader_btn = CustomRoundCornerButton('Create Shader')
         self.create_shader_btn.setIcon(QtGui.QIcon(':hypershadeIcon.png'))
-        #self.create_shader_btn.setFixedWidth(64)
         
         self.color_slider = CustomColorButton()
-        self.surfaceshader_btn = QtWidgets.QPushButton('Surface Shader')
+        self.surfaceshader_btn = CustomRoundCornerButton('Surface Shader')
         self.surfaceshader_btn.setIcon(QtGui.QIcon(':render_surfaceShader.png'))
         self.surfaceshader_btn.setStyleSheet("font-size: 9px;")
-        self.lambert_btn = QtWidgets.QPushButton('Lambert')
+        self.lambert_btn = CustomRoundCornerButton('Lambert')
         self.lambert_btn.setIcon(QtGui.QIcon(':render_lambert.png'))
-        self.blinn_btn = QtWidgets.QPushButton('Blinn')
+        self.blinn_btn = CustomRoundCornerButton('Blinn')
         self.blinn_btn.setIcon(QtGui.QIcon(':render_blinn.png'))
-        self.standardsurface_btn = QtWidgets.QPushButton('Standard Surface')
+        self.standardsurface_btn = CustomRoundCornerButton('Standard Surface')
         self.standardsurface_btn.setStyleSheet("font-size: 9px;")
         self.standardsurface_btn.setIcon(QtGui.QIcon(':out_standardSurface.png'))
-        self.aiflat_btn = QtWidgets.QPushButton('Ai Flat')
-        self.aiMixShader = QtWidgets.QPushButton('Ai Mix Shader')
-        self.aistandardsurface_btn = QtWidgets.QPushButton('Ai Standard Surface')
+        self.aiflat_btn = CustomRoundCornerButton('Ai Flat')
+        self.aiMixShader = CustomRoundCornerButton('Ai Mix Shader')
+        self.aistandardsurface_btn = CustomRoundCornerButton('Ai Standard Surface')
         
-        self.create_file_btn = QtWidgets.QPushButton('Create File')
-        #self.create_file_btn.setMaximumWidth(136)
-        #self.create_file_btn.setMinimumHeight(72)
+        self.create_file_btn = CustomRoundCornerButton('Create File')
         
         self.hardedges_slider_max = QtWidgets.QSlider(QtCore.Qt.Horizontal)
         self.hardedges_slider_max.setMinimum(0)
@@ -639,70 +549,52 @@ class AGTools(QtWidgets.QWidget):
         self.create_node_renderer_cb.addItems(['Arnold', 'Maya Default'])
         
         
-        self.create_range_btn = QtWidgets.QPushButton('Range')
+        self.create_range_btn = CustomRoundCornerButton('Range')
         self.create_range_btn.setIcon(QtGui.QIcon(':out_remapValue.png'))
-        self.create_cc_btn = QtWidgets.QPushButton('Color Correct')
+        self.create_cc_btn = CustomRoundCornerButton('Color Correct')
         self.create_cc_btn.setIcon(QtGui.QIcon(':out_remapColor.png'))
         
         self.color_space_menu = QtWidgets.QMenu()
-        self.color_space_list = ['sRGB', 'Raw', '', 'ACES - ACEScg', '', 
-        'Utility - Linear - sRGB', 'Utility - sRGB - Texture', 'Utility - Raw', 
-        '', 'Output - sRGB'
-        ]
-        self.color_space_action_list = []
-        self.color_space_btn = QtWidgets.QPushButton('Set Color Space')
-        #render_colorProfile
+        self.color_space_list = [cs for cs in FILTERED_COLOR_SPACES]
+        self.color_space_btn = CustomRoundCornerButton('Color Space')
         self.color_space_btn.setIcon(QtGui.QIcon(':render_colorProfile.png'))
         
-        #self.prefixActions[0].triggered.connect(lambda: addPrefix(self.prefixList[0]))
-        for obj in self.color_space_list:
-            if obj:
-                color_space_action = self.color_space_menu.addAction(obj)
-            else:
-                color_space_action = self.color_space_menu.addSeparator()
-            self.color_space_action_list.append(color_space_action)
+        self.color_space_action_list = [self.color_space_menu.addAction(obj) for obj in self.color_space_list]
         self.color_space_btn.setMenu(self.color_space_menu)
         
         
-        self.link_repeat_btn = QtWidgets.QPushButton('Link Repeat UV')
+        self.link_repeat_btn = CustomRoundCornerButton('Link Repeat UV')
         #out_place2dTexture
         self.link_repeat_btn.setIcon(QtGui.QIcon(':out_place2dTexture.png'))
         
-        self.link_break_btn = QtWidgets.QPushButton('Break Linked')
+        self.link_break_btn = CustomRoundCornerButton('Break Linked')
         self.link_break_btn.setIcon(QtGui.QIcon(':out_place2dTexture.png'))
-        
-        #self.create_shader_btn.setIcon(QtGui.QIcon(':render_standard_surface.png'))
-        #self.create_shader_btn.setIconSize(QtCore.QSize(30, 30))
-        #self.create_shader_btn.setStyleSheet('border-style: outset;')
-        #self.create_shader_btn.setStyleSheet('background-color: rgb(220, 150, 59);')
-        #self.create_shader_btn.setFont()
-        #self.create_shader_btn.setStyleSheet
         
         # R E N A M E   W I D G E T S
         colorize_btn_size = 24
         
-        self.rename_colorize_01_btn = QtWidgets.QPushButton()
+        self.rename_colorize_01_btn = CustomRoundCornerButton('')
         self.rename_colorize_label = QtWidgets.QLabel('Colorize Objects :')
         
         self.rename_colorize_01_btn.setFixedSize(colorize_btn_size,colorize_btn_size)
         self.rename_colorize_01_btn.setStyleSheet("background-color: #{};".format('fd3b70'))
-        self.rename_colorize_02_btn = QtWidgets.QPushButton()
+        self.rename_colorize_02_btn = CustomRoundCornerButton('')
         self.rename_colorize_02_btn.setFixedSize(colorize_btn_size,colorize_btn_size)
         self.rename_colorize_02_btn.setStyleSheet("background-color: #{};".format('ff7e3d'))
-        self.rename_colorize_03_btn = QtWidgets.QPushButton()
+        self.rename_colorize_03_btn = CustomRoundCornerButton('')
         self.rename_colorize_03_btn.setFixedSize(colorize_btn_size,colorize_btn_size)
         self.rename_colorize_03_btn.setStyleSheet("background-color: #{};".format('fdca3b'))
-        self.rename_colorize_04_btn = QtWidgets.QPushButton()
+        self.rename_colorize_04_btn = CustomRoundCornerButton('')
         self.rename_colorize_04_btn.setFixedSize(colorize_btn_size,colorize_btn_size)
         self.rename_colorize_04_btn.setStyleSheet("background-color: #{};".format('31d2b1'))
-        self.rename_colorize_05_btn = QtWidgets.QPushButton()
+        self.rename_colorize_05_btn = CustomRoundCornerButton('')
         self.rename_colorize_05_btn.setFixedSize(colorize_btn_size,colorize_btn_size)
         self.rename_colorize_05_btn.setStyleSheet("background-color: #{};".format('3b8dfd'))
-        self.rename_colorize_06_btn = QtWidgets.QPushButton()
+        self.rename_colorize_06_btn = CustomRoundCornerButton('')
         self.rename_colorize_06_btn.setFixedSize(colorize_btn_size,colorize_btn_size)
         self.rename_colorize_06_btn.setStyleSheet("background-color: #{};".format('e450ff'))
         
-        self.rename_colorize_reset_btn = QtWidgets.QPushButton('Reset')
+        self.rename_colorize_reset_btn = CustomRoundCornerButton('Reset')
         
         self.rename_line_01 = QtWidgets.QLabel()
         self.rename_line_01.setFrameStyle(QtWidgets.QFrame.HLine | QtWidgets.QFrame.Plain)
@@ -753,17 +645,14 @@ class AGTools(QtWidgets.QWidget):
         self.rename_all_rb = QtWidgets.QRadioButton('All')
         self.rename_hierarchy_rb.setChecked(True)
         
-        self.rename_btn = QtWidgets.QPushButton('Rename')
-        #self.rename_btn.setMinimumHeight(36)
-        #self.rename_btn.setMinimumWidth(96)
+        self.rename_btn = CustomRoundCornerButton('Rename')
         self.rename_btn.setIcon(QtGui.QIcon(':quickRename.png'))
-        #self.rename_hierarchy_rb.set
         
 
         
         self.rename_item_object_label = QtWidgets.QLabel('Objects :')
         self.rename_item_count_label = QtWidgets.QLabel()
-        self.rename_clear_btn = QtWidgets.QPushButton('Clear')
+        self.rename_clear_btn = CustomRoundCornerButton('Clear')
         self.rename_item_preview_ckb = QtWidgets.QCheckBox('Preview')
         self.rename_item_preview_ckb.setChecked(True)
         self.change_checkbox_color(self.rename_item_preview_ckb, '3b8dfd')
@@ -774,14 +663,10 @@ class AGTools(QtWidgets.QWidget):
         self.rename_item_renamedlist_tree = QtWidgets.QTreeWidget()
         self.rename_item_renamedlist_tree.setHeaderHidden(True)
         
-        #rename_tree_header = self.rename_item_list_tree.headerItem()
-        #rename_tree_header.setText()
-        
-        
         self.prefix_btn_label = 'Prefix List'
         if self.is_cap_when_create:
             self.prefix_btn_label = 'PREFIX List'
-        self.prefix_btn = QtWidgets.QPushButton(self.prefix_btn_label)
+        self.prefix_btn = CustomRoundCornerButton(self.prefix_btn_label)
         self.prefix_menu = QtWidgets.QMenu()
         self.prefix_btn.setMenu(self.prefix_menu)
         self.suffix_label = QtWidgets.QLabel('Suffix : ')
@@ -803,7 +688,7 @@ class AGTools(QtWidgets.QWidget):
         self.suffix_btn_label = 'Suffix List'
         if self.is_cap_when_create:
             self.suffix_btn_label = 'Quick SUFFIX'
-        self.suffix_btn = QtWidgets.QPushButton(self.suffix_btn_label)
+        self.suffix_btn = CustomRoundCornerButton(self.suffix_btn_label)
         self.suffix_menu = QtWidgets.QMenu()
         self.suffix_btn.setMenu(self.suffix_menu)
         self.suffix_list = ['auto detect', '', 'geo', 'grp', 'jnt', 'nul', 'ctr', 'mtl', 'mat', 'sg', 'loc', 'con', '', 'high', 'low', 'ignorebf', 'hp', 'lp', '', 'm', 'p', 'w', 'g', 'r', 'i', 'c']
@@ -825,18 +710,18 @@ class AGTools(QtWidgets.QWidget):
         
         self.export_create_shader_folder_le = QtWidgets.QLineEdit()
         self.export_create_shader_folder_le.setMinimumHeight(24)
-        self.export_select_file_path_btn = QtWidgets.QPushButton()
+        self.export_select_file_path_btn = CustomRoundCornerButton('')
         self.export_select_file_path_btn.setIcon(QtGui.QIcon(':fileOpen.png'))
         self.export_select_file_path_btn.setToolTip('Select Folder')
         
-        self.export_tex_btn = QtWidgets.QPushButton('Export Selection')
+        self.export_tex_btn = CustomRoundCornerButton('Export Selection')
         self.export_tex_btn.setIcon(QtGui.QIcon(':out_substanceOutput.png'))
         self.export_tex_btn.setMinimumHeight(54)
         self.export_mari_ckb = QtWidgets.QCheckBox('Mari')
         self.export_sp_ckb = QtWidgets.QCheckBox('Substance (Texturing)')
         self.export_spbake_ckb = QtWidgets.QCheckBox('Substance (Baking)')
         
-        self.export_abc_btn = QtWidgets.QPushButton('Alembic')
+        self.export_abc_btn = CustomRoundCornerButton('Alembic')
         
     def create_title_label(self):
         image_path = BANNER_IMG.format(AGT_UI_SETTINGS.value('banner_img', 'agao'))
@@ -849,8 +734,6 @@ class AGTools(QtWidgets.QWidget):
         
         main_layout.addWidget(self.title_label)
         main_layout.addWidget(self.my_tab)
-        
-        #main_layout.addWidget(self.inst_btn)
         
         # M O D E L   L A Y O U T
         model_btn_layout_01 = QtWidgets.QHBoxLayout(self)
@@ -867,9 +750,6 @@ class AGTools(QtWidgets.QWidget):
         
         model_btn_layout_02 = QtWidgets.QHBoxLayout(self)
         model_btn_layout_02.setAlignment(QtCore.Qt.AlignCenter)
-        #model_btn_layout_02.addWidget(self.object_rb)
-        #model_btn_layout_02.addWidget(self.world_rb)
-        #model_btn_layout_02.addWidget(self.model_vline_01)
         model_btn_layout_02.addWidget(self.inst_colorize_ckb)
         model_btn_layout_02.addWidget(self.inst_merge_ckb)
         model_btn_layout_02.addWidget(self.inst_bake_btn)
@@ -890,10 +770,8 @@ class AGTools(QtWidgets.QWidget):
         model_hardedges_form_layout_main.addRow('Min Angle', model_hardedges_layout_min)
         model_hardedges_form_layout_main.addRow('Max Angle', model_hardedges_layout_max)
         
-        #model_hardedges_HBoxlayout_01.addWidget(self.hardedges_label_main)
         model_hardedges_HBoxlayout_01.addLayout(model_hardedges_form_layout_main)
         model_hardedges_HBoxlayout_01.addWidget(self.hardedges_select_btn)
-        #model_hardedges_HBoxlayout_01.addWidget(self.checker_btn)
         
         
         model_select_layout_01 = QtWidgets.QHBoxLayout(self)
@@ -901,7 +779,6 @@ class AGTools(QtWidgets.QWidget):
         model_select_layout_01.addWidget(self.checker_btn)
         model_select_layout_01.addWidget(self.badmesh_btn)
         
-        #model_btn_layout_01.addWidget(self.model_vline_01)
         model_btn_layout_01.addLayout(model_axis_rd_btn)
         model_layout = QtWidgets.QVBoxLayout(self)
         model_layout.setAlignment(QtCore.Qt.AlignTop)
@@ -912,7 +789,6 @@ class AGTools(QtWidgets.QWidget):
         model_layout.addLayout(model_hardedges_HBoxlayout_01)
         model_layout.addWidget(self.model_line_02)
         model_layout.addLayout(model_select_layout_01)
-        #model_layout.addLayout(model_axis_rd_btn)
         
         # S H A D E R   L A Y O U T
         shader_layout = QtWidgets.QVBoxLayout(self)
@@ -927,8 +803,6 @@ class AGTools(QtWidgets.QWidget):
         shader_name_layout.addWidget(self.create_shader_name_le)
     
         
-        #shader_name_layout.addWidget(self.shader_name_ckb)
-        #shader_name_layout.addWidget(self.create_shader_subfolder_ckb)
         shader_name_layout.addWidget(self.create_shader_colorcorrect_ckb)
         shader_name_layout.addWidget(self.create_shader_assign_ckb)
         
@@ -937,13 +811,10 @@ class AGTools(QtWidgets.QWidget):
         shader_form_layout.addRow('Folder :', file_path_layout)
         shader_form_layout.addRow('Name :', shader_name_layout)
         
-        #name_form_layout = QtWidgets.QFormLayout()
-        
         
         shader_settings_layout = QtWidgets.QHBoxLayout()
         shader_settings_layout.addWidget(self.create_shader_renderer_cb)
         shader_settings_layout.addWidget(self.create_shader_colorspace_cb)
-        #shader_settings_layout.addWidget(self.create_shader_assign_ckb)
         shader_settings_layout.addWidget(self.create_shader_btn)
         
         shader_quick_action_layout = QtWidgets.QVBoxLayout()
@@ -971,11 +842,7 @@ class AGTools(QtWidgets.QWidget):
         shader_create_file_count_Hlayout.addWidget(self.create_file_num_label)
         shader_create_file_count_Hlayout.addWidget(self.create_file_num_spinbox)
         shader_create_file_count_Hlayout.addWidget(self.create_file_btn)
-        #shader_create_file_count_Hlayout.addSpacing(12)
-        
         shader_create_file_form_layout = QtWidgets.QFormLayout()
-        #shader_create_file_form_layout.addRow('File Options :', shader_create_file_ckb_Hlayout)
-        #shader_create_file_form_layout.addRow('Color Space :', shader_create_file_rb_Hlayout)
         
         shader_create_file_settings_Hlayout.addLayout(shader_create_file_ckb_Vlayout)
         shader_create_file_settings_Hlayout.addLayout(shader_create_file_rb_Vlayout)
@@ -983,16 +850,12 @@ class AGTools(QtWidgets.QWidget):
         
         shader_create_file_layout.addLayout(shader_create_file_form_layout)
         shader_create_file_form_layout.addRow('', shader_create_file_count_Hlayout)
-        #shader_create_file_layout.addWidget(self.create_file_btn)
-        #shader_create_file_layout.addLayout(shader_create_file_ckb_Hlayout)
 
         
         shader_create_node_layout = QtWidgets.QHBoxLayout()
         shader_create_node_layout.addWidget(self.create_node_renderer_cb)
         shader_create_node_layout.addWidget(self.create_range_btn)
         shader_create_node_layout.addWidget(self.create_cc_btn)
-        
-        #shader_create_node_layout.addWidget(self.shader_line_01)
         
         color_slider_layout = QtWidgets.QHBoxLayout()
         shader_mayashader_layout = QtWidgets.QHBoxLayout()
@@ -1004,14 +867,7 @@ class AGTools(QtWidgets.QWidget):
         for grp in self.shader_btn_grp_list:
             
             for btn in grp:
-                print(btn)
                 color_slider_layout.addWidget(btn)
-            
-            
-        #shader_arnoldshader_layout.
-
-        #color_slider_layout.addWidget(self.color_slider)
-
         
         
         
@@ -1025,22 +881,17 @@ class AGTools(QtWidgets.QWidget):
         shader_file_util_Hlayout.addLayout(shader_quick_action_layout)
         
         shader_layout.addLayout(shader_form_layout)
-        #shader_layout.addLayout(name_form_layout)
         shader_layout.addLayout(shader_settings_layout)
         shader_layout.addWidget(self.shader_line_01)
         shader_layout.addLayout(shader_file_util_Hlayout)
         shader_layout.addWidget(self.shader_line_02)
         shader_layout.addLayout(shader_create_node_layout)
-        #shader_layout.addLayout(shader_quick_action_layout)
         
         shader_layout.addLayout(color_slider_layout)
         shader_layout.addWidget(self.shader_line_03)
-        #shader_layout.addWidget(self.b_btn)
-        
         # R E N A M E   L A Y O U T
         rename_layout = QtWidgets.QVBoxLayout()
         rename_layout.setAlignment(QtCore.Qt.AlignTop)
-        
         
         self.rename_colorize_Hline_01 = QtWidgets.QLabel()
         self.rename_colorize_Hline_01.setFrameStyle(QtWidgets.QFrame.HLine | QtWidgets.QFrame.Plain)
@@ -1055,8 +906,6 @@ class AGTools(QtWidgets.QWidget):
         rename_colorize_layout.addWidget(self.rename_colorize_04_btn)
         rename_colorize_layout.addWidget(self.rename_colorize_05_btn)
         rename_colorize_layout.addWidget(self.rename_colorize_06_btn)
-        #rename_colorize_layout.addWidget(self.rename_colorize_07_btn)
-        #rename_colorize_layout.addWidget(self.rename_colorize_08_btn)
         rename_colorize_layout.addWidget(self.rename_colorize_reset_btn)
         
         rename_le_layout = QtWidgets.QHBoxLayout()
@@ -1075,45 +924,16 @@ class AGTools(QtWidgets.QWidget):
         prefix_layout.addWidget(self.rename_suffix_le)
         prefix_layout.addWidget(self.suffix_btn)
 
-        
-        #suffix_layout = QtWidgets.QHBoxLayout()
-        #prefix_layout.addWidget(self.suffix_label)
-        #suffix_layout.addWidget(self.rename_suffix_le)
-        #suffix_layout.addWidget(self.suffix_btn)
-        
-        #fix_layout.addSpacing(30)
-        
-        # suffix_layout = QtWidgets.QHBoxLayout()
-        # suffix_layout.addWidget(self.rename_suffix_le)
-        # suffix_layout.addWidget(self.suffix_btn)
-        
-
         quickmenu_layout = QtWidgets.QVBoxLayout()
         quickmenu_layout.addWidget(self.prefix_btn)
         quickmenu_layout.addWidget(self.suffix_btn)
-        #quickmenu_layout.addWidget(self.rename_caps_ckb)
-        
-        
-        #rename_selection_layout = QtWidgets.QHBoxLayout()
-        
-        #rename_selection_layout.setAlignment(QtCore.Qt.AlignLeft)
-        #rename_selection_layout.addWidget(self.rename_hierarchy_rb)
-        #rename_selection_layout.addWidget(self.rename_selected_rb)
-        #rename_selection_layout.addWidget(self.rename_all_rb)
-        #rename_selection_layout.addWidget(self.rename_selection_cb)
-        #rename_selection_layout.addWidget(self.rename_caps_ckb)
-        #rename_selection_layout.addWidget(self.rename_clear_ckb)
-        #rename_selection_layout.addWidget(self.rename_btn)
         presuf_layout.addLayout(quickmenu_layout)
         
         rename_options_layout = QtWidgets.QHBoxLayout()
         rename_options_layout.addWidget(self.rename_caps_ckb)
-        #rename_options_layout.addWidget(self.rename_autosuffix_ckb)
         rename_options_layout.addWidget(self.rename_clear_ckb)
         rename_options_layout.addWidget(self.rename_btn)
         rename_options_layout.setAlignment(QtCore.Qt.AlignRight)
-        #rename_options_layout.addStretch()
-       # rename_options_layout.addWidget(self.rename_btn)
         
         rename_btn_layout = QtWidgets.QHBoxLayout()
         rename_item_preview_cbk_layout = QtWidgets.QHBoxLayout()
@@ -1158,21 +978,7 @@ class AGTools(QtWidgets.QWidget):
         self.rename_separator_layout.addLayout(rename_separator_le_layout)
         self.rename_separator_layout.addLayout(rename_separator_options_layout)
         
-        #self.rename_separator_layout.addWidget(self.rename_separator_cb)
-        
-        
-        
-        #self.rename_separator_layout.setAlignment(QtCore.Qt.AlignLeft)
-        #rename_le_layout.addLayout(self.rename_separator_layout)
-        
-        
-        #rename_selection_layout.setSpacing(50)
-        #rename_selection_layout.addLayout(self.rename_separator_layout)
-        #self.rename_separator_layout.addWidget(self.rename_caps_ckb)
-        
-        #rename_le_form_layout.addRow('Object :', rename_selection_layout)
-        #rename_le_form_layout.addRow('Separator :', self.rename_separator_layout)
-        #rename_le_form_layout.setSpacing(50)
+
         rename_le_form_layout.addRow('Prefix :', prefix_layout)
         #rename_le_form_layout.addRow('Suffix :', suffix_layout)
         rename_le_form_layout.addRow('Name :', rename_le_layout)
@@ -1185,12 +991,6 @@ class AGTools(QtWidgets.QWidget):
         rename_layout.addLayout(rename_item_list_layout)
         rename_layout.addLayout(rename_options_layout)
        
-        #rename_layout.addLayout(rename_selection_layout)
-        #rename_layout.addSpacing()
-        #colorize_from_layout = QtWidgets.QFormLayout()
-        #rename_colorize_layout.setAlignment(QtCore.Qt.AlignRight)
-        #rename_colorize_layout.addStretch()
-        #colorize_from_layout.addRow('Colorize Object :', rename_colorize_layout)
         
         rename_layout.addWidget(self.rename_colorize_Hline_01)
         rename_layout.addLayout(rename_colorize_layout)
@@ -1198,10 +998,6 @@ class AGTools(QtWidgets.QWidget):
         
         
         # E X P O R T    L A Y O U T
-        
-                
-        
-        
         
         
         self.export_tab_grp = QtWidgets.QTabWidget(self)
@@ -1271,19 +1067,15 @@ class AGTools(QtWidgets.QWidget):
         
     def create_connections(self):
         
-        self.banner_rp.triggered.connect(lambda: self.update_banner('rp'))
-        self.banner_agao.triggered.connect(lambda: self.update_banner('agao'))
-        self.banner_kirby.triggered.connect(lambda: self.update_banner('kirby'))
-        self.banner_doge.triggered.connect(lambda: self.update_banner('doge'))
-        self.banner_lycoris.triggered.connect(lambda: self.update_banner('lycoris'))
+
+        for item in self.banner_items:
+            item.triggered.connect(lambda checked=None, text=item.text().lower(): self.update_banner(text))
         
         self.hide_banner.triggered.connect(lambda: self.banner_display_toggle())
         #self.inst_btn.
         #print(self.changedValue(self.hardedges_slider_min, self.hardedges_label_min))
         self.my_tab.currentChanged.connect(lambda: self.rename_refresh_items())
         
-        
-        #self.rename_colorize_01_btn.clicked.connect(lambda: colorize(1.26762, 0.158119, 0.236945))
         self.rename_colorize_01_btn.clicked.connect(lambda: colorize(0.992, 0.231, 0.439))
         self.rename_colorize_02_btn.clicked.connect(lambda: colorize(1.0, 0.494, 0.239))
         self.rename_colorize_03_btn.clicked.connect(lambda: colorize(1.531999945640564, 0.8253204822540283, 0.4320240020751953))
@@ -1340,24 +1132,10 @@ class AGTools(QtWidgets.QWidget):
         
         for i in self.color_space_list:
             print(self.color_space_list.index(i))
-            
-        # self.aicc_btn.clicked.connect(lambda: insert_color_adjustment('aiColorCorrect'))
-        # self.airange_btn.clicked.connect(lambda: insert_color_adjustment('aiRange'))
-        # self.file_btn.clicked.connect(lambda: file_generator())
         
-        self.color_space_action_list[0].triggered.connect(lambda: set_color_space(self.color_space_list[0]))
-        self.color_space_action_list[1].triggered.connect(lambda: set_color_space(self.color_space_list[1]))
-        self.color_space_action_list[2].triggered.connect(lambda: set_color_space(self.color_space_list[2]))
-        self.color_space_action_list[3].triggered.connect(lambda: set_color_space(self.color_space_list[3]))
-        self.color_space_action_list[4].triggered.connect(lambda: set_color_space(self.color_space_list[4]))
-        self.color_space_action_list[5].triggered.connect(lambda: set_color_space(self.color_space_list[5]))
-        self.color_space_action_list[6].triggered.connect(lambda: set_color_space(self.color_space_list[6]))
-        self.color_space_action_list[7].triggered.connect(lambda: set_color_space(self.color_space_list[7]))
-        self.color_space_action_list[8].triggered.connect(lambda: set_color_space(self.color_space_list[8]))
-        self.color_space_action_list[9].triggered.connect(lambda: set_color_space(self.color_space_list[9]))
-        
-        
-        
+        for action in self.color_space_action_list:
+            action.triggered.connect(lambda checked=None, cs=action.text(): set_color_space(cs))
+                
         self.checker_btn.clicked.connect(lambda: checker_select())
         self.floor_btn.clicked.connect(lambda: move_to_center())
         self.create_node_renderer_cb.currentTextChanged.connect(self.renderer_node_switch)
@@ -1371,7 +1149,6 @@ class AGTools(QtWidgets.QWidget):
         self.create_file_aces_ckb.toggled.connect(lambda: self.change_checkbox_color(self.create_file_aces_ckb, '31d2b1'))
         self.rename_caps_ckb.toggled.connect(lambda: self.change_checkbox_color(self.rename_caps_ckb, '3b8dfd'))
         self.rename_autosuffix_ckb.toggled.connect(lambda: self.change_checkbox_color(self.rename_autosuffix_ckb, '3b8dfd'))
-        #self.rename_autosuffix_ckb.isChecked()
         self.rename_autosuffix_ckb.toggled.connect(lambda: self.rename_suffix_le.setDisabled(self.rename_autosuffix_ckb.isChecked()))
         self.rename_autosuffix_ckb.toggled.connect(lambda: self.rename_refresh_items())
         
@@ -1409,21 +1186,21 @@ class AGTools(QtWidgets.QWidget):
                 
     #             if rect.contains():
     #                 pass
-        
+
     def indexEvent(self):
-        
-        if self.my_tab.currentIndex() == 0:
-            self.title_label.set_backgorund_color(QtGui.QColor('#fdca3b'))
-            
-        elif self.my_tab.currentIndex() == 1:
-            self.title_label.set_backgorund_color(QtGui.QColor('#31d2b1'))
-        
-        elif self.my_tab.currentIndex() == 2:
-            self.title_label.set_backgorund_color(QtGui.QColor('#3b8dfd'))
-            
-        elif self.my_tab.currentIndex() == 3:
-            self.title_label.set_backgorund_color(QtGui.QColor('#fd3b70'))
-            
+        color_dict = {
+            0: '#fdca3b',
+            1: '#31d2b1',
+            2: '#3b8dfd',
+            3: '#fd3b70',
+        }
+
+        index = self.my_tab.currentIndex()
+        color = color_dict.get(index)
+
+        if color:
+            self.title_label.set_backgorund_color(QtGui.QColor(color))
+            AGT_UI_SETTINGS.setValue('my_tab', index)
         
     def on_color_changed(self, new_color):
         print('new color: ({0}, {1}, {2})'.format(new_color.red(), new_color.green(), new_color.blue()))
@@ -1528,8 +1305,6 @@ class AGTools(QtWidgets.QWidget):
     def show_workspace_control(self):
         self.workspace_control_instance.set_visible(True)
         
-    
-        
     def showEvent(self, e):
         if self.workspace_control_instance.is_floating():
             self.workspace_control_instance.set_label('AGTools RP Editions')
@@ -1538,7 +1313,6 @@ class AGTools(QtWidgets.QWidget):
             
     def enableCheck(self, ckb, widgets):
         widgets.setEnabled(ckb.isChecked())
-        #self.hardedges_slider_max.setDisabled(False)
             
     def changedValue(self, slider, label):
         slider.valueChanged()
@@ -1600,49 +1374,16 @@ class AGTools(QtWidgets.QWidget):
             
     def rename(self, rename):
         
-        clear = self.rename_clear_ckb.isChecked()
-        caps = self.rename_caps_ckb.isChecked()
-        selection = self.selection(self.rename_selection_cb.currentText().lower())
-        separator = ''
-        name = self.rename_le.text()
-        index = self.rename_index_cb.currentText()
-        prefix = self.rename_prefix_le.text()
-        suffix = self.rename_suffix_le.text()
-        numbers_of_zeros = 0
-        separator = self.rename_separator_le.text()
-        auto_suffix = self.rename_autosuffix_ckb.isChecked()
+        clear_le_list = [self.rename_le, self.rename_suffix_le, self.rename_prefix_le]
+        for obj in self.selection_dict:
+            mc.rename(mc.ls(obj['uid'], l=True), obj['new_name'])
             
-        if caps:
-            name = name.upper()
-            prefix = prefix.upper()
-            suffix = suffix.upper()
-        else:
-            pass
-            
-        if not index == 'None':
-            if prefix or suffix:
-                if not name:
-                    numbers_of_zeros = 0
-                    numbers_of_zeros = 0
-                else:
-                    numbers_of_zeros = int(len(index))
-            else:
-                numbers_of_zeros = int(len(index))
-        else:
-            numbers_of_zeros = 0
-        #int(len(self.rename_index_cb.currentText()))-1
-        
-        new_name = renamer(selection, name, numbers_of_zeros, prefix, suffix, separator, rename, auto_suffix)
-        
-        if rename and clear:
-            self.rename_le.setText('')
-            self.rename_suffix_le.setText('')
-            self.rename_prefix_le.setText('')
-            
-        if rename:
-            self.rename_refresh_items()
-            
-        return new_name
+        if self.rename_clear_ckb.isChecked():
+            for le in clear_le_list:
+                le.setText('')
+ 
+        self.rename_refresh_items()
+        return
         
     def create_shader(self):
         
@@ -1692,9 +1433,6 @@ class AGTools(QtWidgets.QWidget):
                 
                 
         print(file_colorspace)
-            
-            
-        
         
         print('create file')
         print('')
@@ -1702,152 +1440,163 @@ class AGTools(QtWidgets.QWidget):
     def test(self):
         print('test')
         
-    def rename_refresh_items(self):
+    def get_new_name(self, selection_dict, rename_setting_dict):
+        invalid_characters = ' !@#$%^&*()-=+[];:\'\"<>?{}\\/,|~.*'
+        zeros_padding = ''
+        old_name = selection_dict['name']
+        idx = selection_dict['index']
+        padding_length = rename_setting_dict['padding_length']
+        separator = rename_setting_dict['separator']
+        prefix = rename_setting_dict['prefix']
+        new_name = rename_setting_dict['new_name'] or old_name
+        suffix = rename_setting_dict['suffix']
         
-        preview = self.rename_item_preview_ckb.isChecked()
-        current_tab_index = self.my_tab.currentIndex()
-        
-        if preview and current_tab_index == 2:
-            self.rename_list_selection()
+        if padding_length and new_name != old_name:
+            zeros_padding = str(idx).zfill(padding_length)
             
-        else:
+        new_name_full = [prefix, new_name, zeros_padding, suffix]
+        new_name_full = separator.join(filter(None, new_name_full))
+        
+        for char in invalid_characters:
+            new_name_full = new_name_full.replace(char, '_')
+        
+        return new_name_full
+
+                
+    def rename_refresh_items(self):
+        '''
+        referesh items depends on current state
+        '''
+        is_preview_enabled = self.rename_item_preview_ckb.isChecked()
+        current_tab_index = self.my_tab.currentIndex()
+        if not is_preview_enabled or current_tab_index != 2:
             self.rename_item_list_tree.clear()
             self.rename_item_renamedlist_tree.clear()
+            return
+        self.selection_dict = self.rename_list_selection()
+        
                 
                 
     def rename_list_selection(self):
+        clear = self.rename_clear_ckb.isChecked()
+        selection_dict = self.selection(self.rename_selection_cb.currentText().lower())
         
+        rename_setting_dict = {
+            'new_name' : self.rename_le.text(),
+            'padding_length' : 0,
+            'prefix' : self.rename_prefix_le.text(),
+            'suffix' : self.rename_suffix_le.text(),
+            'separator' : self.rename_separator_le.text(),
+            'apply_new_name' : False,
+            'auto_suffix' : self.rename_autosuffix_ckb.isChecked()
+        }
+        
+        self.rename_item_count_label.setText(str(len(selection_dict)))
         self.rename_item_list_tree.clear()
         self.rename_item_renamedlist_tree.clear()
+
+
+        padding_length_str  = self.rename_index_cb.currentText()
+        if padding_length_str != 'None':
+            rename_setting_dict['padding_length'] = len(padding_length_str)
         
-        # I N I T
-        clear = self.rename_clear_ckb.isChecked()
-        caps = self.rename_caps_ckb.isChecked()
-        selection = self.selection(self.rename_selection_cb.currentText().lower())
-        separator = ''
-        name = self.rename_le.text()
-        index = self.rename_index_cb.currentText()
-        prefix = self.rename_prefix_le.text()
-        suffix = self.rename_suffix_le.text()
-        numbers_of_zeros = 0
-        separator = self.rename_separator_le.text()
-        auto_suffix = self.rename_autosuffix_ckb.isChecked()
-        if caps:
-            name = name.upper()
-            prefix = prefix.upper()
-            suffix = suffix.upper()
-        else:
-            pass
-            
-        if not index == 'None':
-            if prefix or suffix:
-                if not name:
-                    numbers_of_zeros = 0
-                    numbers_of_zeros = 0
-                else:
-                    numbers_of_zeros = int(len(index))
-            else:
-                numbers_of_zeros = int(len(index))
-        else:
-            numbers_of_zeros = 0
-            
-        selection = self.selection(self.rename_selection_cb.currentText().lower())
-        self.rename_item_count_label.setText(str(len(selection)))
+        if selection_dict:
+            for obj in selection_dict:
+                item = self.rename_list_item(obj['name'])
+                self.rename_item_list_tree.addTopLevelItem(item)
+                obj['new_name'] = self.get_new_name(obj, rename_setting_dict)
+                renamed_item = self.rename_list_item(obj['new_name'])
+                self.rename_item_renamedlist_tree.addTopLevelItem(renamed_item)
         
-        for obj in selection:
-            item_name = mc.ls(obj, l=False)[0].split('|')[-1]
-            item = self.rename_list_item(item_name)
-            
-            self.rename_item_list_tree.addTopLevelItem(item)
-            
-        print(numbers_of_zeros)
-        new_name_list = renamer(selection, name, numbers_of_zeros, prefix, suffix, separator, False, auto_suffix)
-        
-        for obj in new_name_list:
-            
-            renamed_item = self.rename_list_item(obj)
-            self.rename_item_renamedlist_tree.addTopLevelItem(renamed_item)
+        return selection_dict
         
     def rename_list_item(self, name):
         item = QtWidgets.QTreeWidgetItem([name])
         return item
         
-    def rename_separator_cb_changed(self):
-        if self.rename_separator_cb.currentText() == 'Custom':
-            self.rename_separator_le.setEnabled(True)
-            self.rename_separator_le.setHidden(False)
-        else:
-            self.rename_separator_le.setHidden(True)
-            self.rename_separator_le.setDisabled(True)
-        
     def selection(self, selection_type='selected'):
-    
-        mc.undoInfo(openChunk=True)
-        
-        selection = mc.ls(sl=True, tr=True, uid=True)
-        
+        READ_ONLY = mc.ls(['|top', '|front', '|persp', '|side'], uid=True)
+        selection = []
         if selection_type == 'hierarchy':
-            
-            source_selection = selection
-            mc.select(hierarchy=True)
-            selection = mc.ls(sl=True, tr=True, uid=True)
-            mc.select(mc.ls(source_selection, l=True))
-            
+            selection = mc.ls(mc.ls(dagObjects=True, shapes=False, sl=True, tr=True), uid=True)
         elif selection_type == 'selected':
             selection = mc.ls(sl=True, tr=True, uid=True)
-            
         elif selection_type == 'all':
             selection = mc.ls('*', tr=True, uid=True)
-            
         elif selection_type == 'group':
-            
-            child_obj = []
-            for obj in selection:
-                sel_obj = mc.listRelatives(mc.ls(obj, l=True), c=True, f=True)
-                
-                for i in sel_obj:
-                    
-                    child = mc.listRelatives(i, c=True, f=True)
-                    
-                    if child:
-                        # if len(child) > 1:
-                        #     continue
-                        # else:
-                        #     if get_true_object_type(child) == 'transform':
-                        #         continue
-                        #     else:
-                        #         child_obj.append(i) 
-                        child_obj.append(i)
-                    else:
-                        continue
-                        
-            selection = child_obj
-            
+            selection = mc.ls(
+                [i for obj in mc.ls(sl=True, tr=True, uid=True) 
+                for i in mc.listRelatives(mc.ls(obj, l=True), c=True, f=True) 
+                if mc.listRelatives(i, c=True, f=True)], 
+                uid=True
+                )
         else:
-            pass
-        mc.undoInfo(closeChunk=True)
+            QtWidgets.QMessageBox.warning(self, 'Error', 'Invalid selection type')
+        selection_uid = [node for node in selection if node not in READ_ONLY]
+        selection_dict = [
+                {
+                    'uid':node, 
+                    'name':mc.ls(node)[0].split('|')[-1],
+                    'index':idx+1,
+                    'new_name':''
+                }
+                for idx, node in enumerate(selection_uid)
+            ]
+        return selection_dict
         
-        return selection
+    def hideEvent(self, e):
+        try:
+            if self and self.parent():
+                ui_exist = True
+                workspace_control_name = self.parent().objectName()
+                self.save_user_data()
+                if mc.workspaceControl(workspace_control_name, q=True, exists=True):
+                    
+                    for child_widget in self.findChildren(QtWidgets.QWidget):
+                        child_widget.deleteLater()
+                    for layout in self.findChildren(QtWidgets.QLayout):
+                        layout.deleteLater()
+                    
+                    self.deleteLater()
+                    
+                    mc.deleteUI(workspace_control_name)
+                    mc.workspaceControl(workspace_control_name, e=True, close=True)
+                del self
+            else:
+                ui_exist = False
+        except:
+            pass
+        
             
-
-
-
-if __name__ == "__main__":
-    ui_exist = False
-    try:
-        if agt_ui and agt_ui.parent():
-            ui_exist = True
-            workspace_control_name = agt_ui.parent().objectName()
-            if mc.workspaceControl(workspace_control_name, q=True, exists=True):
-                mc.deleteUI(workspace_control_name)
-                mc.workspaceControl(workspace_control_name, e=True, close=True)
-            del agt_ui
-        else:
-            ui_exist = False
-    except:
-        pass
-    if not ui_exist:
-        agt_ui = AGTools()
+    def save_user_data(self):
+        mc.scriptJob(kill=self.job_update_selection, f=True)
+        print('clear jobs')
+        AGT_UI_SETTINGS.setValue('my_tab', self.my_tab.currentIndex())
+        AGT_UI_SETTINGS.setValue('rename_selection_cb', self.rename_selection_cb.currentIndex())
+        AGT_UI_SETTINGS.setValue('rename_index_cb', self.rename_index_cb.currentIndex())
+     
+    def set_user_data(self):
+        self.my_tab.setCurrentIndex(AGT_UI_SETTINGS.value('my_tab', 0))
+        self.rename_selection_cb.setCurrentIndex(AGT_UI_SETTINGS.value('rename_selection_cb', 1))
+        self.rename_index_cb.setCurrentIndex(AGT_UI_SETTINGS.value('rename_index_cb', 3))
+        
+     
+# if __name__ == "__main__":
+#     ui_exist = False
+#     try:
+#         if agt_ui and agt_ui.parent():
+#             ui_exist = True
+#             workspace_control_name = agt_ui.parent().objectName()
+#             if mc.workspaceControl(workspace_control_name, q=True, exists=True):
+#                 mc.deleteUI(workspace_control_name)
+#                 mc.workspaceControl(workspace_control_name, e=True, close=True)
+#             del agt_ui
+#         else:
+#             ui_exist = False
+#     except:
+#         pass
+#     if not ui_exist:
+#         agt_ui = AGTools()
 
 def display():
     global agt_ui
@@ -1857,26 +1606,29 @@ def display():
         if agt_ui and agt_ui.parent():
             ui_exist = True
             workspace_control_name = agt_ui.parent().objectName()
+            agt_ui.save_user_data()
             if mc.workspaceControl(workspace_control_name, q=True, exists=True):
+                
+                for child_widget in agt_ui.findChildren(QtWidgets.QWidget):
+                    child_widget.deleteLater()
+                for layout in agt_ui.findChildren(QtWidgets.QLayout):
+                    layout.deleteLater()
+                
+                agt_ui.deleteLater()
+                
                 mc.deleteUI(workspace_control_name)
                 mc.workspaceControl(workspace_control_name, e=True, close=True)
             del agt_ui
+            
         else:
             ui_exist = False
     except:
         pass
     if not ui_exist:
         agt_ui = AGTools()
+        
+display()
 
-#     print(agt_ui)
-    # agt_ui.show()
-    #dockable=True
-    #agt_ui.show()
-
-
-def empty(a = 'empty'):
-    print(a)
-    
 def getFaceCenter(face):
     vtxList = mc.xform(face, q = True, ws = True, t = True)
     facePos = []
@@ -2054,50 +1806,7 @@ def btCombine():
             return None
         #mc.undoInfo(closeChunk=True)
     
-    def combine():
-        #undo after deleted polyUnite will cause missing shader
-        #I separate commands to 2 undo chunk to avoid that issues
-        parent_name = getParent()
-        sel_obj = mc.ls(os = True, l = True)
-        if sel_obj:
-            #mc.undoInfo(openChunk=True, infinity = True)
-            sel_obj_name = str(mc.ls(os = True)[-1])
-            sel_obj_name = sel_obj_name.split('|')[-1]
-            #mc.undoInfo(closeChunk=True, infinity = True)
-            new_obj = mc.polyUnite(objectPivot = True)
-            #mc.undoInfo( state=True, infinity=True )
-            #mc.undoInfo(openChunk=True)
-            for obj in new_obj:
-                if not 'polyUnite' in obj:
-                    combined = obj
-            clean_obj = mc.duplicate(combined)
-            mc.delete(new_obj)
-            mc.delete(sel_obj)
-            clean_obj = mc.rename(clean_obj, sel_obj_name)
-            if mc.objExists(parent_name):
-                mc.parent(clean_obj, parent_name)
-                print(parent_name)
-            elif parent_name:
-                pList = parent_name.split('|')
-                pList.remove(pList[0])
-                tempList = pList
-                reversTempList = pList[::-1]
-                for obj in reversTempList:
-                    newparent_name = "|".join(tempList)
-                    del tempList[-1]
-                    if mc.objExists(newparent_name):
-                        mc.parent(clean_obj, newparent_name)
-                        break
-            else:
-                pass
-    combine()
-    mc.undoInfo(closeChunk=True)
-    
-    
-    
-    
-    
-    
+
 def mirror_axis(x=0):
     mc.undoInfo(openChunk=True)
     sel_obj = mc.ls(sl=True)
@@ -2135,93 +1844,6 @@ def flip(x=0):
         mc.inViewMessage(amg='Nothing selected<font color="#fdca3b"></font><br>.', pos='topCenter', fade=True)
     mc.undoInfo(closeChunk=True)
 
-
-def addSuffix(suffix):
-    caps = AGtoolsUI.AGtoolsWindows.isCaps()
-    if caps :
-        suffix = suffix.upper()
-    else:
-        suffix = suffix.lower()
-    suffix = '_' + suffix
-    for name in mc.ls(sl=True):
-        mc.rename(name+suffix)
-        
-def addPrefix(prefix):
-    caps = AGtoolsUI.AGtoolsWindows.isCaps()
-    if caps :
-        prefix = prefix.upper()
-    else:
-        prefix = prefix.lower()
-    prefix = prefix + '_'
-    for name in mc.ls(sl=True):
-        mc.rename(prefix+name)
-        
-def autoSuffix(mode = 1):
-    #0 = selection only
-    #1 = hierarchy
-    #2 = all
-    caps = AGtoolsUI.AGtoolsWindows.isCaps()
-    mc.undoInfo(openChunk=True)
-    trueTypes =  ['mesh', 'camera']
-    specialTypes = ['locator','nurbsCurve','nurbsSurface','ambientLight','directionalLight',
-    'pointLight','spotLight','areaLight', 'aiSkyDomeLight', 'volumeLight', 'aiAreaLight', 
-    'aiPhotometricLight', 'renderSphere', 'renderBox', 'renderCone', 'stereoRigCamera', 
-    'stereoRigFrustum', 'distanceDimShape', 'VRayLightDomeShape', 'VRayLightRectShape', 
-    'VRayLightSphereShape', 'VRayLightIESShape', 'VRaySunShape', 'VRayVolumeGrid', 'particle', 
-    'fluidShape', 'bulletRigidBodyShape', 'VRaySettingsNode']
-    sel_obj = mc.ls(sl=True, long = True)
-    isMesh = False
-    if sel_obj and mode == 1:
-        sel_obj = select_hierarchy()
-
-    if mode == 2:
-        sel_obj = mc.ls(dag = True, long = True)
-        
-    print(len(sel_obj))
-    #Optimize
-    shapes = mc.ls(sel_obj, long = True, type = 'shape')
-    sel_obj = list(set(sel_obj).difference(set(shapes)))
-    sel_obj.sort(key = len, reverse = True)
-    print('shapes = ' +str(shapes))
-    print(len(sel_obj))
-
-    for obj in sel_obj:
-        shortName = obj.split('|')[-1]
-        objType = mc.objectType(obj)
-        children = mc.listRelatives(obj, c = True, f = True) or []
-        isShape = False
-        if objType == 'transform' and len(children) == 1:
-            childType = mc.objectType(children[0])
-            if childType == 'mesh':
-                objType = childType
-                isShape = True
-            elif childType == 'transform' or childType == 'joint':
-                objType == objType
-            else:
-                continue
-                
-        if objType == 'mesh':
-            suffix = 'GEO'
-        elif objType == 'joint':
-            suffix = 'JNT'
-        elif objType == 'camera':
-            continue
-        elif objType == 'transform':
-            suffix = 'GRP'
-        else:
-            continue
-            
-        if caps :
-            suffix = suffix.upper()
-        else:
-            suffix = suffix.lower()
-        new_name = str(shortName) + '_' + suffix
-        
-        if isShape:
-            shapeName = new_name + 'Shape'
-            mc.rename(children[0], shapeName, ignoreShape = True)
-        mc.rename(obj, new_name, ignoreShape = True) 
-    mc.undoInfo(closeChunk=True)
 
 def toEdge(ep):
     sel_obj = mc.ls(sl=True, flatten = True)
@@ -2495,561 +2117,6 @@ def checker_select(op = 'l', spacing = 1):
         
     mc.select(ordered_obj)
 
-
-def remame():
-    sel_obj = mc.ls(sl=True)
-    if sel_obj:
-        if len(sel_obj) > 1:
-            mc.warning('please use [_###] to rename multiple objects')
-        else:
-            name = mc.textField('name', query=True, text=True)
-            if name == '':
-                pass
-                #mc.warning('Name cannot be empty')
-            
-            new_name = mc.rename(sel_obj[0], name)
-    else:
-        mc.inViewMessage(amg='Nothing selected<font color="#fdca3b"></font><br>.', pos='topCenter', fade=True, fst=5)
-        
-def name():
-    mc.undoInfo(openChunk=True)
-    name = AGtoolsUI.AGtoolsWindows.textBoxName()
-    nameTextBox = AGtoolsUI.AGtoolsWindows.textBox
-    nameTextBox.clear()
-    if name == '':
-        pass
-        #mc.warning('Name cannot be empty')
-    else:
-        print('new name ='+str(name))
-        sel_obj = mc.ls(sl=True, long=True)
-        selRemove = ['mesh', 'locator', 'camera', 'nurbsCurve','nurbsSurface','ambientLight','directionalLight','pointLight','spotLight','areaLight', 'aiSkyDomeLight', 'volumeLight', 'aiAreaLight', 'aiPhotometricLight', 'renderSphere', 'renderBox', 'renderCone', 'stereoRigCamera', 'stereoRigFrustum', 'distanceDimShape', 'VRayLightDomeShape', 'VRayLightRectShape', 'VRayLightSphereShape', 'VRayLightIESShape', 'VRaySunShape', 'VRayVolumeGrid', 'particle', 'fluidShape', 'bulletRigidBodyShape', 'VRaySettingsNode']
-        
-        filtered_obj = []
-        
-        for obj in sel_obj:
-            objtype = str(mc.objectType(obj))
-            if objtype in selRemove:
-                pass
-            else:
-                filtered_obj.append(obj)
-        filteredUUID = []
-        if len(filtered_obj) >= 1:
-            for obj in filtered_obj:
-                
-                uuid = mc.ls(obj, uid=True)[0]
-                filteredUUID.append(uuid)
-            
-            #³o­ÓFOR¬O¥Î©ó­«·s©R¦W
-            for obj in filtered_obj:
-                
-                #³o¤T¦æ¥h¦P¨B­è¤~§ì¨ìªºUUID
-                syncIndex = filtered_obj.index(obj)
-                currentUUID = filteredUUID[syncIndex]
-                
-                index = filtered_obj.index(obj)+1
-                zero = '00'
-                if index >= 10:
-                    zero = '0'
-                suffix= '{}{}'.format(zero, index)
-                if index >= 100:
-                    suffix = index
-                objBeforeRename = mc.ls(currentUUID, long=True)[0]
-                
-                print('befor = '+str(objBeforeRename))
-                new_objName = '{}_{}'.format(name, suffix)
-                #--------------------------------------------
-                new_name = mc.rename(objBeforeRename, new_objName, ignoreShape = True)
-                #--------------------------------------------
-                
-                #objAfterRename ¬O¥ÎUUID¥h¨ú±o©R¦W¹L«áªºª«¥ó¥þ¦W
-                objAfterRename = mc.ls(currentUUID, long=True)[0]
-                print('after = '+str(objAfterRename))
-                print('index : '+str(syncIndex))
-                
-                #³o­Ó¬ORename shape
-        
-                if not mc.listRelatives(objAfterRename, shapes=True):
-                    print('this object has no shape')
-                else:
-                    shape = mc.listRelatives(objAfterRename, shapes=True)[0]
-                    shapeFullPath = '{}|{}'.format(objAfterRename, shape)
-                    objAfterRename =  objAfterRename.split('|')[-1]
-                    mc.rename(shapeFullPath, '{}Shape'.format(objAfterRename) , ignoreShape = True)
-        
-        else:
-            mc.inViewMessage(amg='Nothing selected<font color="#fdca3b"></font><br>.', pos='topCenter', fade=True, fst=5)
-            
-        
-        mc.undoInfo(closeChunk=True)
-
-def select_hierarchy():
-    sel_obj = mc.ls(sl = True, long = True)
-    mc.select(sel_obj, hi = True)
-    hierarchy = mc.ls(sl = True, long = True)
-    mc.select(sel_obj)
-    return hierarchy
-    
-def get_material(multi_mat = False):
-    shaders = mc.listNodeTypes('shader')
-    if multi_mat == False:
-        last_selection = mc.ls(os=True)[-1]
-        mc.select(last_selection)
-        if not mc.objectType(last_selection) in shaders:
-            mc.hyperShade(smn = True)
-        select_mat = mc.ls(os = True)[0]
-    if multi_mat == True:
-        sel_obj = mc.ls(sl = True)
-        material_list = []
-        for obj in sel_obj:
-            if mc.objectType(obj) in shaders:
-                material_list.append(obj)
-            else:
-                continue
-        left_obj = list(set(sel_obj).difference(set(material_list)))
-        
-        if left_obj:
-                mc.select(left_obj)
-                mc.hyperShade(smn = True)
-                this_shader = mc.ls(sl = True)
-                if this_shader:
-                    material_list.extend(this_shader)
-        material_list = list(set(material_list))
-        select_mat = material_list
-    return select_mat
-        
-def material_transfer():
-    mc.undoInfo(openChunk=True)
-    sel_obj = mc.ls(os=True, flatten = True)
-    if len(sel_obj) < 2:
-        mc.warning('no target to transfer')
-    else:
-        #get
-        mc.select(sel_obj[0])
-        mc.hyperShade(smn = True)
-        material_list = mc.ls(sl = True)
-        Mat = material_list[-1]
-        
-        #set
-        mc.select(sel_obj)
-        mc.hyperShade(assign = Mat)
-        mc.select(Mat)
-    mc.undoInfo(closeChunk=True)
-    
-def convert_to_arnold():
-    sel_obj = get_material(True)
-    mc.undoInfo(openChunk=True)
-    if 'lambert1' in sel_obj:
-        sel_obj.remove('lambert1')
-    for obj in sel_obj:
-        material_type = str(mc.objectType(obj))
-        if material_type == 'aiStandardSurface':
-            print(str(obj)+' is already aiStandardSurface')
-            continue
-        aiColor = mc.getAttr(str(obj)+'.color')[0]
-        aiDiffuse = mc.getAttr(str(obj)+'.diffuse')
-        if material_type != 'lambert':
-            aiSpecular = mc.getAttr(str(obj)+'.specularColor')[0]
-        aiTransparency = mc.getAttr(str(obj)+'.transparency')[0]
-        sg = mc.listConnections(obj, t = 'shadingEngine')[0]
-        mc.delete(obj)
-        aiMat = mc.createNode('aiStandardSurface', n = str(obj))
-        mc.connectAttr(aiMat+'.outColor', sg+'.surfaceShader')
-        mc.setAttr(str(aiMat)+'.base', 1) 
-        
-        if aiTransparency[0] != 0:
-            mc.setAttr(str(aiMat)+'.transmissionColor', aiColor[0], aiColor[1], aiColor[2], type='double3')
-            mc.setAttr(str(aiMat)+'.transmission', 1)
-            mc.setAttr(str(aiMat)+'.metalness', 0)
-        elif aiDiffuse == 0:
-            if material_type != 'lambert':
-                mc.setAttr(str(aiMat)+'.baseColor', aiSpecular[0], aiSpecular[1], aiSpecular[2], type='double3') 
-            mc.setAttr(str(aiMat)+'.metalness', 1)
-        else:
-            mc.setAttr(str(aiMat)+'.baseColor', aiColor[0], aiColor[1], aiColor[2], type='double3')  
-        print(str(obj)+' is successfully converted')
-    mc.undoInfo(closeChunk=True)
-    
-#Shaderball
-def connect_tweaker_to_file(tweaker, fileNode):
-    connections = ['rotateUV','offset','noiseUV','vertexCameraOne','vertexUvThree','vertexUvTwo','vertexUvOne','repeat_uv','wrapV','wrapU','stagger','mirrorU','mirrorV','rotateFrame','translateFrame','coverage']
-    mc.connectAttr(tweaker+'.outUV', fileNode+'.uvCoord', f=True)
-    mc.connectAttr(tweaker+'.outUvFilterSize', fileNode+'.uvFilterSize', f=True)
-    for attr in connections:
-        index = connections.index(attr)
-        mc.connectAttr(tweaker+'.'+connections[index], fileNode+'.'+connections[index], f=True)
-
-def createChecker():
-    #fileNode =  'UVchecker'
-    tweaker = 'UVtweaker'
-    repeat_uv = 'repeat_uv'
-    uv_file = ['uv.png', 'uv_2.jpg', 'uv_3.jpg', 'uv_4.png', 'uv_5.png', 'uv_6.png', 'uv_7.jpg', 'uv_8.png', 'uv_9.jpg']
-    uv_file_node = []
-    for obj in uv_file:
-        index = uv_file.index(obj)
-        uv = image_dir+uv_file[index]
-        file_name = obj.split('.')[0]
-        uv_file_node.append(file_name)
-        if mc.objExists(file_name):
-            mc.setAttr(str(file_name)+'.fileTextureName', uv, type='string')
-        else:
-            mc.createNode('file', n = file_name)
-            mc.setAttr(str(file_name)+'.fileTextureName', uv, type='string')
-    if not mc.objExists(tweaker):
-         mc.createNode('place2dTexture', n = tweaker)
-    if not mc.objExists(repeat_uv):
-         mc.createNode('floatConstant', n = repeat_uv)
-    if not mc.listConnections(repeat_uv) or []:
-            mc.connectAttr(repeat_uv+'.outFloat', tweaker+'.repeat_uv.repeatU', f = True)
-            mc.connectAttr(repeat_uv+'.outFloat', tweaker+'.repeat_uv.repeatV', f = True)
-    for obj in uv_file_node:
-        if 'UVtweaker' in set(mc.listConnections(obj)):
-            continue
-        connect_tweaker_to_file(tweaker, obj, repeat_uv)
-    return(uv_file_node)
-
-def connectCheckerToShader(index):
-    mc.undoInfo(openChunk=True)
-    sel_obj = mc.ls(sl = True)
-    checker = createChecker()
-    mat_color = ['lambert', 'blinn', 'phongE', 'phong', 'anisotropic']
-    mat_basecolor = ['standardSurface', 'aiStandardSurface']
-    mat_outcolor = ['surfaceShader']
-    if sel_obj:
-        connected_material = []
-        for obj in sel_obj:
-            mc.select(obj)
-            select_mat = get_material()
-            if select_mat in connected_material:
-                continue
-            connected_material.append(select_mat)
-            print(select_mat)
-            material_type = str(mc.objectType(select_mat))
-            stored_color_con = str(select_mat)+'_colorCon'
-            if material_type in mat_color:
-                storedColor = list(mc.getAttr(str(select_mat)+'.color')[0])
-                mc.connectAttr(checker[index]+'.outColor', str(select_mat)+'.color', f = True)
-            elif material_type in mat_basecolor:
-                storedColor = list(mc.getAttr(str(select_mat)+'.baseColor')[0])
-                mc.connectAttr(checker[index]+'.outColor', str(select_mat)+'.baseColor', f = True)
-            elif material_type in mat_outcolor:
-                storedColor = list(mc.getAttr(str(select_mat)+'.outColor')[0])
-                mc.connectAttr(checker[index]+'.outColor', str(select_mat)+'.outColor', f = True)
-            else:
-                print('unavailable material')
-            if not mc.objExists(stored_color_con):
-                mc.createNode('colorConstant', n = stored_color_con)
-                mc.setAttr(stored_color_con+'.inColor', storedColor[0], storedColor[1], storedColor[2], typ = 'double3')
-                mc.connectAttr(str(select_mat)+'.outColorR', stored_color_con+'.inAlpha', f = True)
-    else:
-        mc.inViewMessage(amg='Nothing selected<font color="#fdca3b"></font><br>.', pos='topCenter', fade=True, fst=5)
-    mc.undoInfo(closeChunk=True)
-    
-def remove_checker():
-    mc.undoInfo(openChunk=True)
-    uv_file = ['uv', 'uv_2', 'uv_3', 'uv_4', 'uv_5', 'uv_6', 'uv_7', 'uv_8', 'uv_9']
-    sel_obj = mc.ls(sl = True)
-    mat_color = ['lambert', 'blinn', 'phongE', 'phong', 'anisotropic']
-    mat_basecolor = ['standardSurface', 'aiStandardSurface']
-    mat_outcolor = ['surfaceShader']
-    connected_material = []
-    for obj in sel_obj:
-        mc.select(obj)
-        select_mat = get_material()
-        
-        if select_mat in connected_material:
-            continue
-            
-        connected_material.append(select_mat)
-        material_type = str(mc.objectType(select_mat))
-        connections = set(mc.listConnections(select_mat))
-        connections = list(set(connections).intersection(set(uv_file)))
-        stored_color_con = str(select_mat)+'_colorCon'
-        if mc.objExists(stored_color_con):
-            storedColor = list(mc.getAttr(stored_color_con+'.inColor')[0])
-            mc.delete(stored_color_con)
-        else:
-            storedColor = [0.5, 0.5, 0.5]
-        if connections:
-            if material_type in mat_color:
-                mc.disconnectAttr(str(connections[0])+'.outColor', str(select_mat)+'.color')
-                mc.setAttr(str(select_mat)+'.color', storedColor[0], storedColor[1], storedColor[2], typ = 'double3')
-            elif material_type in mat_basecolor:
-                mc.disconnectAttr(str(connections[0])+'.outColor', str(select_mat)+'.baseColor')
-                mc.setAttr(str(select_mat)+'.baseColor', storedColor[0], storedColor[1], storedColor[2], typ = 'double3')
-            elif material_type in mat_outcolor:
-                mc.disconnectAttr(str(connections[0])+'.outColor', str(select_mat)+'.outColor')
-                mc.setAttr(str(select_mat)+'.outColor', storedColor[0], storedColor[1], storedColor[2], typ = 'double3')
-        else:
-            continue
-    mc.undoInfo(closeChunk=True)
-    
-def tweakTile(x):
-    current_repeat = mc.getAttr('repeat_uv.inFloat')
-    print(current_repeat)
-    if current_repeat > 1:
-        if x == 0:
-            new_repeat = current_repeat - 1
-        else:
-            new_repeat = current_repeat + 1
-    else:
-        if x == 0 and current_repeat > 0.2:
-            new_repeat = current_repeat * 0.5
-        else:
-            new_repeat = current_repeat * 2
-    mc.setAttr('repeat_uv.inFloat', new_repeat)
-
-def add_ref(refType):
-    #ca, cb, g, matcap, matcap_silver_1, matcap_silver_2, matcap_silver_3, matcap_copper_1, matcap_glow, matcap_gold_1, matcap_gold_2
-    availableMat = ['rampShader', 'phongE', 'phong', 'anisotropic', 'blinn']
-    matCaps = ['matcap', 'matcap_silver_1', 'matcap_silver_2', 'matcap_silver_3', 'matcap_copper_1', 'matcap_glow', 'matcap_gold_1', 'matcap_gold_2']
-    matCapEnvballs = [obj+'_envball' for obj in matCaps]
-        
-    mc.undoInfo(openChunk=True)
-    sel_obj = mc.ls(sl=True)
-    refCA = 'refCA'
-    refCAFile = image_dir+'/ref_check/Ref_Check_3.jpg'
-    envBallCA = 'envBallCA'
-    
-    refCB = 'refCB'
-    refCBFile = image_dir+'/ref_check/Ref_Check_1.jpg'
-    envBallCB = 'envBallCB'
-    
-    refG = 'refG'
-    refGFile = image_dir+'/ref_check/Ref_Check_2x_BW.jpg'
-    envBallG = 'envBallG'
-    for obj in matCaps:
-        if not mc.objExists(obj):
-            mc.createNode('file', n = obj)
-            mc.setAttr(obj+'.fileTextureName', image_dir+obj+'.png', typ='string')
-        if not mc.objExists(obj+'_envball'):
-            mc.createNode('envBall', n = obj+'_envball')
-            mc.setAttr(obj+'_envball.eyeSpace', True)
-        connection = set(mc.listConnections(obj)) or []
-        connection.remove('defaultColorMgtGlobals')
-        if not connection:
-            mc.connectAttr(obj+'.outColor', obj+'_envball.image', f = True)
-            
-    if not mc.objExists(refCA):
-        refCA = mc.createNode('file', n = refCA)
-        mc.setAttr(refCA+'.fileTextureName', refCAFile, type='string')
-    if not mc.objExists(envBallCA):
-        #CACtrl = mc.createNode('place3dTexture', n = 'CACtrl')
-        envBallCA = mc.createNode('envBall', n = envBallCA)
-        #mc.connectAttr(CACtrl+'.worldInverseMatrix', envBallCA+'.placementMatrix', f = True)
-        mc.connectAttr(refCA+'.outColor', envBallCA+'.image', f = True)
-        
-    if not mc.objExists(refCB):
-        refCB = mc.createNode('file', n = refCB)
-        mc.setAttr(refCB+'.fileTextureName', refCBFile, type='string')
-    if not mc.objExists(envBallCB):
-        #CBCtrl = mc.createNode('place3dTexture', n = 'CBCtrl')
-        envBallCB = mc.createNode('envBall', n = envBallCB)
-        #mc.connectAttr(CBCtrl+'.worldInverseMatrix', envBallCB+'.placementMatrix', f = True)
-        mc.connectAttr(refCB+'.outColor', envBallCB+'.image', f = True)
-
-    if not mc.objExists(refG):
-        refG = mc.createNode('file', n = refG)
-        mc.setAttr(refG+'.fileTextureName', refGFile, type='string')
-    if not mc.objExists(envBallG):
-        #GCtrl = mc.createNode('place3dTexture', n = 'GCtrl')
-        envBallG = mc.createNode('envBall', n = envBallG)
-        #mc.setAttr(GCtrl+'.rotateZ', 90)
-        #mc.connectAttr(GCtrl+'.worldInverseMatrix', envBallG+'.placementMatrix', f = True)
-        mc.connectAttr(refG+'.outColor', envBallG+'.image', f = True)
-    
-    if sel_obj:
-        connected_material = []
-        for obj in sel_obj:
-            mc.select(obj)
-            select_mat = get_material()
-            if select_mat in connected_material:
-                continue
-            connected_material.append(select_mat)
-            material_type = str(mc.objectType(select_mat))
-            if material_type in availableMat:
-                if refType == 'ca':
-                    mc.connectAttr(envBallCA+'.outColor', select_mat+'.reflectedColor', f = True)
-                elif refType == 'cb':
-                    mc.connectAttr(envBallCB+'.outColor', select_mat+'.reflectedColor', f = True)
-                elif refType == 'g':
-                    mc.connectAttr(envBallG+'.outColor', select_mat+'.reflectedColor', f = True)
-                elif refType in matCaps:
-                    mc.connectAttr(refType+'_envball.outColor', select_mat+'.reflectedColor', f = True)
-            else:
-                mc.warning('unavailable material')
-                continue
-    else:
-        mc.inViewMessage(amg='Nothing selected<font color="#fdca3b"></font><br>.', pos='topCenter', fade=True, fst=5)
-    
-    if sel_obj and refType == 'rm':
-        connected_material = []
-        for obj in sel_obj:
-            mc.select(obj)
-            select_mat = get_material()
-            if select_mat in connected_material:
-                continue
-            connected_material.append(select_mat)
-            material_type = str(mc.objectType(select_mat))
-            if material_type in availableMat:
-                connections = mc.listConnections(select_mat)
-                if envBallCA in connections:
-                    mc.disconnectAttr(envBallCA+'.outColor', select_mat+'.reflectedColor')
-                if envBallCB in connections:
-                    mc.disconnectAttr(envBallCB+'.outColor', select_mat+'.reflectedColor')
-                if envBallG in connections:
-                    mc.disconnectAttr(envBallG+'.outColor', select_mat+'.reflectedColor')
-                connections = list(set(connections).intersection(set(matCapEnvballs)))
-                if connections:
-                    mc.disconnectAttr(str(connections[0])+'.outColor', select_mat+'.reflectedColor')
-            else:
-                continue    
-    mc.select(sel_obj)
-    mc.undoInfo(closeChunk=True)
-
-def arnold_wireframe_ao(): 
-    mc.undoInfo(openChunk=True)
-    availableTypes = ['transform', 'mesh']
-    sel_obj = mc.ls(sl = True)
-    agtAO = 'agtAO'
-    agtWF = 'agtWF'
-    agtWireframeMix = 'agtWireframeMix'
-    agtWireframeShader = 'agtWireframeShader'
-    if not mc.objExists(agtAO):
-        agtAO = mc.createNode('aiAmbientOcclusion', n = agtAO) 
-    if not mc.objExists(agtWF):
-        agtWF = mc.createNode('aiWireframe', n = agtWF)
-    if not mc.objExists(agtWireframeMix):  
-        agtWireframeMix = mc.createNode('aiMultiply', n = agtWireframeMix)
-    if not mc.objExists(agtWireframeShader):
-        agtWireframeShader = mc.createNode('aiFlat', n = agtWireframeShader)
-        
-    mc.setAttr(agtWF+'.edgeType', 1)
-    mc.setAttr(agtWF+'.lineWidth', 0.5)
-    mc.connectAttr(agtAO+'.outColor', agtWireframeMix+'.input1', force = True)
-    mc.connectAttr(agtWF+'.outColor', agtWireframeMix+'.input2', force = True)
-    mc.connectAttr(agtWireframeMix+'.outColor', agtWireframeShader+'.color', force = True)
-
-    
-    if sel_obj:
-        for obj in sel_obj:
-            objType = mc.objectType(obj)
-            print(objType)
-            if objType in availableTypes:
-                mc.select(obj)
-                mc.hyperShade(assign = agtWireframeShader)
-            else:
-                print('skip unavailable')
-                continue
-    mc.select(agtWireframeShader)
-    mc.undoInfo(closeChunk=True)
-    
-def create_shader(shader_type, color):
-    mc.undoInfo(openChunk=True)
-    sel_obj = mc.ls(sl=True)
-    create = False
-    wf = False
-    availableTypes = ['transform', 'mesh']
-    
-    if shader_type == 'lambert':
-        shader = mc.createNode('lambert')
-        mc.setAttr(shader+'.diffuse', 1)
-        create = True
-    elif shader_type == 'blinn':
-        shader = mc.createNode('blinn')
-        mc.setAttr(shader+'.diffuse', 1)
-        mc.setAttr(shader+'.reflectivity', 1)
-        mc.setAttr(shader+'.specularColor',1, 1, 1, type='double3')
-        create = True
-    elif shader_type == 'aiStandardSurface':
-        shader = mc.createNode('aiStandardSurface')
-        mc.setAttr(shader+'.base', 1)
-        create = True
-    elif shader_type == 'aiwireframe':
-        arnold_wireframe_ao()
-        create = False
-    else:
-        mc.warning('unknown type shader')
-        create = False
-        
-    if sel_obj and create:
-        for obj in sel_obj:
-            objType = mc.objectType(obj)
-            print(objType)
-            if objType in availableTypes:
-                mc.select(obj)
-                mc.hyperShade(assign = shader)
-            else:
-                print('skip unavailable')
-                continue
-    if create:
-        mc.select(shader)
-    mc.undoInfo(closeChunk=True)
-def lookThruSelected():
-    if mc.ls(sl=True):
-        sel_obj = mc.ls(sl=True)[-1]
-        currentPanel = mc.getPanel(withFocus=True)
-        mc.lookThru(currentPanel, sel_obj, nc=0.001, fc=10000)
-    else:
-        mc.inViewMessage(amg='Nothing selected<font color="#fdca3b"></font><br>.', pos='topCenter', fade=True, fst=5)
-
-#Optimize
-def shaderFixer():
-    sel_obj = mc.ls(sl = True)
-    if sel_obj:
-        mc.undoInfo(openChunk=True)
-        tempShader = mc.createNode('lambert')
-        mc.select(sel_obj)
-        mc.hyperShade(assign = tempShader)
-        mc.undoInfo(closeChunk=True)
-        mc.undo()
-
-def deleteUnsed():
-    mel.eval('MLdeleteUnused;')
-    
-def move_to_center():
-    sel_obj = mc.ls(sl=True)
-    if sel_obj:
-        box = mc.exactWorldBoundingBox(sel_obj)
-        bottomCenter = [(box[0]+box[3])*.5, box[1], (box[2]+box[5])*.5]
-        mc.xform(sel_obj, piv=bottomCenter, ws=True)
-        mc.move(0, 0, 0, sel_obj, rpr=True, ws=True)
-        mc.makeIdentity(apply=True, t=1, r=1, s=1, n=0)
-    else:
-        mc.inViewMessage(amg='Nothing selected<font color="#fdca3b"></font><br>.', pos='topCenter', fade=True, fst=5)
-
-def Optimize():
-    
-    print('Optimize')
-    
-def toObj():
-    
-    mc.undoInfo(openChunk=True)
-    sel_obj = mc.ls(sl = True, dag = False, long = True)
-    selGrp = mc.ls(sl = True, dag = True, type = ['mesh'])
-    newList = []
-    if sel_obj:
-        for obj in sel_obj:
-            if '[' in obj and ']' in obj:
-                fillteredObj = obj.split('.')[0]
-                newList.append(fillteredObj)
-            else:
-                continue
-            newList = list(set(newList))
-    if selGrp:
-        transNodes = mc.listRelatives(selGrp, p = True, f=True)
-        transNodes = list(set(transNodes))
-        newList.extend(transNodes)
-    newList = list(set(newList))
-    mc.select(newList)
-    mc.undoInfo(closeChunk=True)
-    return mc.ls(sl = True, long = True)
-        
-def reverseNormal():
-    
-    sel_obj = toObj()    
-    for obj in sel_obj:
-        mc.polyNormal(obj, normalMode = 4, userNormalMode = 1, ch  = 1)
-
 def set_color_space(color_space):
     
     sel_file = mc.ls(sl=True, type='file')
@@ -3207,144 +2274,6 @@ def select_hard_edges(low_angle, high_angle):
         mc.inViewMessage(amg='Nothing selected<font color="#fdca3b"></font><br>.', pos='topCenter', fade=True)
     mc.undoInfo(closeChunk=True)
     
-
-
-def renamer(obj_list, new_name, number_of_zeros, prefix, suffix, separator, rename, auto_suffix):
-    
-    invalid_characters = [' ', '!', '@', '#', '$', '%', '^', '&', '*', '(', ')', 
-    '-', '=', '+', '[', ']', ';', ':', '"', "'", '<', '>', '?', '{', '}', '\\', 
-    '/', '|', '~', '.', '*']
-    
-    caps = agt_ui.is_caps()
-    
-
-    
-    new_name_list = []
-    use_current_name = False
-    
-    if suffix:
-        for char in invalid_characters:
-            suffix = suffix.replace(char, '_')
-    
-    
-    if prefix:
-        for char in invalid_characters:
-            prefix = prefix.replace(char, '_')
-    
-    if separator:
-        for char in invalid_characters:
-            separator = separator.replace(char, '_')
-            
-    if not new_name:
-        use_current_name = True
-    else:
-        use_current_name = False
-        for char in invalid_characters:
-            new_name = new_name.replace(char, '_')
-            
-    mc.undoInfo(openChunk=True)
-    
-    if auto_suffix:
-        with open(agt_suffix, 'r') as f:
-            agt_suffix_list = json.load(f)
-    
-    for idx, obj in enumerate(obj_list):
-        name_numbers = str(idx+1).zfill(number_of_zeros)
-        
-        if auto_suffix:
-            suffix = agt_suffix_list[get_true_object_type(mc.ls(obj, l=True))]
-        else:
-            suffix = suffix
-        
-        if use_current_name:
-            new_name = mc.ls(obj)[0].split('|')[-1]
-            if caps:
-                new_name = new_name.upper()
-            
-        if number_of_zeros:
-            new_name_info_list = [prefix, new_name, name_numbers, suffix]
-        else:
-            new_name_info_list = [prefix, new_name, suffix]
-            
-        new_name_info_list = [name for name in new_name_info_list if name]
-        new_name_full = insert_separator(new_name_info_list, separator)
-        
-        new_name_list.append(new_name_full)
-        
-        if rename:
-            mc.rename(mc.ls(obj, l=True), new_name_full)
-        else:
-            continue
-        
-    mc.undoInfo(closeChunk=True)
-        
-    return new_name_list
-        
-def insert_separator(string_list, separator):
-    new_name = ''
-    for idx, string in enumerate(string_list):
-        if idx == len(string_list) - 1:
-            separator = ''
-        new_name += '{}{}'.format(string, separator)
-        
-    return new_name
-    
-def autoSuffix(mode = 1):
-    caps = AGtoolsUI.AGtoolsWindows.isCaps()
-    mc.undoInfo(openChunk=True)
-    trueTypes =  ['mesh', 'camera']
-    specialTypes = ['locator','nurbsCurve','nurbsSurface','ambientLight','directionalLight','pointLight','spotLight','areaLight', 'aiSkyDomeLight', 'volumeLight', 'aiAreaLight', 'aiPhotometricLight', 'renderSphere', 'renderBox', 'renderCone', 'stereoRigCamera', 'stereoRigFrustum', 'distanceDimShape', 'VRayLightDomeShape', 'VRayLightRectShape', 'VRayLightSphereShape', 'VRayLightIESShape', 'VRaySunShape', 'VRayVolumeGrid', 'particle', 'fluidShape', 'bulletRigidBodyShape', 'VRaySettingsNode']
-    sel_obj = mc.ls(sl=True, long = True)
-    isMesh = False
-    
-    if mode == 2:
-        sel_obj = mc.ls(dag = True, long = True)
-        
-    print(len(sel_obj))
-    #Optimize
-    shapes = mc.ls(sel_obj, long = True, type = 'shape')
-    sel_obj = list(set(sel_obj).difference(set(shapes)))
-    sel_obj.sort(key = len, reverse = True)
-    print('shapes = ' +str(shapes))
-    print(len(sel_obj))
-
-    for obj in sel_obj:
-        shortName = obj.split('|')[-1]
-        objType = mc.objectType(obj)
-        children = mc.listRelatives(obj, c = True, f = True) or []
-        isShape = False
-        if objType == 'transform' and len(children) == 1:
-            childType = mc.objectType(children[0])
-            if childType == 'mesh':
-                objType = childType
-                isShape = True
-            elif childType == 'transform' or childType == 'joint':
-                objType == objType
-            else:
-                continue
-                
-        if objType == 'mesh':
-            suffix = 'GEO'
-        elif objType == 'joint':
-            suffix = 'JNT'
-        elif objType == 'camera':
-            continue
-        elif objType == 'transform':
-            suffix = 'GRP'
-        else:
-            continue
-            
-        if caps :
-            suffix = suffix.upper()
-        else:
-            suffix = suffix.lower()
-        new_name = str(shortName) + '_' + suffix
-        
-        if isShape:
-            shapeName = new_name + 'Shape'
-            mc.rename(children[0], shapeName, ignoreShape = True)
-        mc.rename(obj, new_name, ignoreShape = True) 
-    mc.undoInfo(closeChunk=True)
     
 def get_true_object_type(sel_obj):
     true_type = ''
